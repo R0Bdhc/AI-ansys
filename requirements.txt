@@ -1,0 +1,12 @@
+# -*- coding: utf-8 -*-
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+openai==1.79.0
+ansys-mapdl-core>=0.73.0
+python-dotenv==1.1.0
+
+# 后处理可视化（融合 ansys-structural-mcp 能力）
+pyvista>=0.48.0
+ansys-tools-visualization-interface>=0.5.0
+matplotlib>=3.8.0
+numpy>=1.26.0
