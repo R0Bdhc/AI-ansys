@@ -160,6 +160,11 @@ class PostProcessor:
 
             matplotlib.use("Agg")  # 离屏后端
             import matplotlib.pyplot as plt
+
+            # 配置中文字体（Windows 优先 Microsoft YaHei，后备 SimHei）
+            plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
+            plt.rcParams["axes.unicode_minus"] = False
+
             import numpy as np
             import pyvista as pv
         except ImportError as exc:

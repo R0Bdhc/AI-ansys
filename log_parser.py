@@ -27,6 +27,32 @@ ERROR_PATTERNS = {
         "title": "许可证错误",
         "description": "通常表示许可证服务不可达、许可证不足，或许可证端口文件/环境配置异常。",
     },
+    # ── Mechanical 专用错误 ──
+    "mechanical_solver_failed": {
+        "pattern": r"Solver\s+failed|Solution\s+failed|求解失败",
+        "title": "Mechanical 求解失败",
+        "description": "Mechanical 求解器未能完成计算，可能与模型设置、边界条件或材料参数有关。",
+    },
+    "mechanical_contact_not_converged": {
+        "pattern": r"Contact\s+region.*not\s+converged|接触.*不收敛|Contact\s+chatter",
+        "title": "接触区域不收敛",
+        "description": "Mechanical 接触迭代未能收敛，建议检查接触刚度、法向行为和初始间隙设置。",
+    },
+    "mechanical_mesh_failed": {
+        "pattern": r"Mesh\s+failed|网格.*失败|Meshing\s+failed",
+        "title": "网格划分失败",
+        "description": "Mechanical 网格生成器失败，可能由于几何缺陷、尺寸冲突或过度复杂的拓扑。",
+    },
+    "mechanical_large_deformation": {
+        "pattern": r"Large\s+deformation|大变形|excessive\s+deformation",
+        "title": "大变形问题",
+        "description": "检测到过度变形，可能需要启用大变形效应、调整加载步长或检查材料/边界条件。",
+    },
+    "mechanical_rigid_body_motion": {
+        "pattern": r"rigid\s+body\s+motion|刚体位移|insufficient\s+constraints",
+        "title": "刚体位移",
+        "description": "约束不足导致模型存在刚体自由度，检查边界条件和接触连接是否完整。",
+    },
 }
 
 

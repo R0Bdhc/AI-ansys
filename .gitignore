@@ -3,7 +3,7 @@
 .vscode/
 __pycache__/
 *.pyc
-reports/*.md
+reports/
 ansys_workspace/
 runtime_data/
 mechanical_workspace/
@@ -13,7 +13,10 @@ nodejs/
 *.tar.gz
 book/
 AI-Ansys/
-.claude/
+.claude/*
+!.claude/mcp-servers/
+!.claude/mcp-servers/ansys-mcp/
+!.claude/mcp-servers/ansys-mcp/server.py
 .reasonix/
 knowledge-base/prompts/
 knowledge-base/domain-knowledge/meeting-ai-assistant*

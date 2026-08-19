@@ -1,6 +1,26 @@
 import json
 import os
+import sys
 from pathlib import Path
+
+
+# ───────────────────────────────
+# stdio 流保护（MCP 模式必需）
+# ───────────────────────────────
+
+def _stdio_guard(func):
+    """装饰器：在工具调用期间将 sys.stdout 重定向到 sys.stderr，防止污染 JSON-RPC stdio 流。"""
+
+    def wrapper(*args, **kwargs):
+        original_stdout = sys.stdout
+        try:
+            sys.stdout = sys.stderr
+            return func(*args, **kwargs)
+        finally:
+            sys.stdout = original_stdout
+
+    return wrapper
+
 
 
 class MechanicalRunner:
@@ -74,6 +94,349 @@ class MechanicalRunner:
             ],
         }
 
+    # ───────────────────────────────
+    # 通用 Mechanical 脚本执行
+    # ───────────────────────────────
+
+    @_stdio_guard
+    def run_python_script(
+        self,
+        script: str,
+        context: str = "custom",
+        launch_mechanical: bool = False,
+        working_directory: str | None = None,
+    ) -> dict:
+        """通用 Mechanical Python 脚本执行入口。
+
+        Args:
+            script: 在 Mechanical 中执行的 Python 脚本字符串
+            context: 脚本上下文标识，用于日志和报告
+            launch_mechanical: 是否真实启动 Mechanical。False 时仅返回预览。
+            working_directory: Mechanical 工作目录
+        """
+        preview = {
+            "success": True,
+            "mode": "preview_only",
+            "context": context,
+            "working_directory": working_directory or str(self.default_workdir),
+            "script_length": len(script),
+            "script_preview": script[:2000] + ("..." if len(script) > 2000 else ""),
+            "notes": [
+                "当前为预览模式，未真实启动 Mechanical。",
+                "如需真实执行，请传 launch_mechanical=true。",
+            ],
+        }
+
+        if not launch_mechanical:
+            return preview
+
+        mechanical_exec, detected_version = self._find_mechanical_executable()
+        if mechanical_exec is None:
+            return {
+                "success": False,
+                "mode": "mechanical_not_found",
+                "message": "未找到 242+ Mechanical 可执行文件，无法执行脚本。",
+            }
+
+        if detected_version not in self.supported_versions:
+            return {
+                "success": False,
+                "mode": "mechanical_version_not_supported",
+                "message": f"当前检测到的 Mechanical 版本为 {detected_version}，此接口仅为 242+ 设计。",
+                "detected_mechanical_exec": str(mechanical_exec),
+            }
+
+        try:
+            return self._execute_mechanical_script(
+                mechanical_exec=mechanical_exec,
+                script=script,
+                context=context,
+                working_directory=working_directory,
+            )
+        except Exception as exc:
+            preview["mode"] = "mechanical_execution_failed"
+            preview["message"] = "Mechanical 脚本执行失败。"
+            preview["detail"] = str(exc)
+            return preview
+
+    @_stdio_guard
+    def _execute_mechanical_script(
+        self,
+        mechanical_exec: Path,
+        script: str,
+        context: str,
+        working_directory: str | None,
+    ) -> dict:
+        """在 Mechanical 中执行脚本，并收集结果。"""
+        self._prepare_pymechanical_runtime()
+
+        from ansys.mechanical.core import launch_mechanical
+
+        resolved_workdir = Path(working_directory) if working_directory else self.default_workdir
+        resolved_workdir.mkdir(parents=True, exist_ok=True)
+
+        mechanical = launch_mechanical(
+            exec_file=str(mechanical_exec),
+            batch=True,
+            cleanup_on_exit=True,
+        )
+
+        try:
+            result_text = mechanical.run_python_script(script)
+            parsed_result = self._parse_json_result(result_text)
+
+            return {
+                "success": True,
+                "mode": "mechanical_script_executed",
+                "message": f"已在 Mechanical 中执行脚本（{context}）。",
+                "working_directory": str(resolved_workdir.resolve()),
+                "used_mechanical_exec": str(mechanical_exec),
+                "execution_result": parsed_result,
+                "script_preview": script[:1000] + ("..." if len(script) > 1000 else ""),
+            }
+        finally:
+            mechanical.exit()
+
+    # ───────────────────────────────
+    # Mechanical 结果提取
+    # ───────────────────────────────
+
+    @_stdio_guard
+    def extract_mechanical_results(
+        self,
+        script_result: dict,
+        result_types: list[str] | None = None,
+    ) -> dict:
+        """从 Mechanical 脚本执行结果中提取工程物理量。
+
+        当前实现解析脚本返回的 JSON 结果中的常见字段。
+        如果 Mechanical 脚本遵循 wb_script_result 契约返回结果数据，
+        此方法将其规范化到与 MAPDL 相同的 engineering_results 结构。
+        """
+        execution_result = script_result.get("execution_result", {})
+        results: dict = {}
+
+        # 位移
+        displacement = execution_result.get("displacement")
+        if displacement:
+            results["displacement"] = displacement
+
+        # 应力
+        stress = execution_result.get("stress")
+        if stress:
+            results["stress"] = stress
+
+        # 频率
+        frequency = execution_result.get("frequency")
+        if frequency:
+            results["frequency"] = frequency
+
+        # 支反力
+        reaction = execution_result.get("reaction_forces")
+        if reaction:
+            results["reaction_forces"] = reaction
+
+        # 接触结果
+        contact = execution_result.get("contact")
+        if contact:
+            results["contact"] = contact
+
+        return results
+
+    # ───────────────────────────────
+    # Mechanical 图片导出
+    # ───────────────────────────────
+
+    @_stdio_guard
+    def export_mechanical_image(
+        self,
+        mechanical_exec: Path | None,
+        script: str,
+        image_path: str,
+        context: str = "mechanical_image",
+    ) -> dict:
+        """在 Mechanical 中执行包含截图命令的脚本，导出结果图片。
+
+        脚本中需要包含 Graphics.ExportImage 调用，将图片保存到指定路径。
+        """
+        if mechanical_exec is None:
+            mechanical_exec, _ = self._find_mechanical_executable()
+            if mechanical_exec is None:
+                return {
+                    "success": False,
+                    "error": "未找到 Mechanical 可执行文件，无法导出图片。",
+                }
+
+        self._prepare_pymechanical_runtime()
+        from ansys.mechanical.core import launch_mechanical
+
+        mechanical = launch_mechanical(
+            exec_file=str(mechanical_exec),
+            batch=True,
+            cleanup_on_exit=True,
+        )
+
+        try:
+            result_text = mechanical.run_python_script(script)
+            parsed_result = self._parse_json_result(result_text)
+
+            return {
+                "success": True,
+                "image_path": image_path,
+                "context": context,
+                "execution_result": parsed_result,
+            }
+        except Exception as exc:
+            return {
+                "success": False,
+                "error": str(exc),
+                "image_path": image_path,
+            }
+        finally:
+            mechanical.exit()
+
+    # ───────────────────────────────
+    # 预定义 Mechanical 脚本模板
+    # ───────────────────────────────
+
+    def _build_cantilever_beam_script(self, params: dict | None = None) -> str:
+        """生成悬臂梁参数化 Mechanical Python 脚本。"""
+        p = {
+            "length": 1.0,
+            "width": 0.1,
+            "height": 0.1,
+            "young_modulus": 2.0e11,
+            "poisson_ratio": 0.3,
+            "force_y": -1000.0,
+            **(params or {}),
+        }
+        payload_json = json.dumps(p, ensure_ascii=False)
+
+        return f'''
+import json
+p = json.loads(r\'\'\'{payload_json}\'\'\')
+
+model = ExtAPI.DataModel.Project.Model
+geom = model.Geometry
+
+# 创建几何（长方体）
+body = geom.AddPrimitiveBox(
+    X1=0, Y1=0, Z1=0,
+    X2=p["length"], Y2=p["width"], Z2=p["height"]
+)
+
+# 材料
+mat = model.Materials.AddMaterial("CustomSteel")
+mat.CreateProperty("Density").SetData(7850)
+mat.CreateProperty("Young's Modulus").SetData(p["young_modulus"])
+mat.CreateProperty("Poisson's Ratio").SetData(p["poisson_ratio"])
+body.Material = mat.Name
+
+# 网格
+mesh = model.Mesh
+mesh.ElementSize = Quantity(min(p["width"], p["height"]) / 5, "m")
+
+# 分析设置
+analysis = model.AddStaticStructuralAnalysis()
+
+# 固定端约束（X=0 面）
+fixed_ns = model.AddNamedSelection()
+fixed_ns.Name = "FIXED_END"
+fixed_ns.Location = body.Faces[0]  # 近似：第一个面
+fixed_support = analysis.AddFixedSupport()
+fixed_support.Location = fixed_ns
+
+# 端部载荷（X=length 面中心点）
+force = analysis.AddForce()
+force.Location = body.Vertices[7]  # 近似：对角顶点
+force.YComponent = Quantity(p["force_y"], "N")
+
+# 求解
+analysis.Solve()
+
+# 结果提取
+solution = analysis.Solution
+deformation = solution.AddTotalDeformation()
+stress = solution.AddEquivalentStress()
+
+# 收集结果数据
+max_disp = deformation.Maximum if deformation else 0.0
+max_stress = stress.Maximum if stress else 0.0
+
+wb_script_result = json.dumps({{
+    "template": "cantilever_beam",
+    "parameters": p,
+    "displacement": {{
+        "max_usum": float(max_disp),
+        "label_usum": "合位移 (USUM)"
+    }},
+    "stress": {{
+        "max_von_mises": float(max_stress),
+        "label_von_mises": "Von Mises (SEQV)"
+    }}
+}}, ensure_ascii=False)
+'''.strip()
+
+    def _build_modal_analysis_script(self, params: dict | None = None) -> str:
+        """生成模态分析参数化 Mechanical Python 脚本。"""
+        p = {
+            "length": 1.0,
+            "width": 0.1,
+            "height": 0.1,
+            "young_modulus": 2.0e11,
+            "poisson_ratio": 0.3,
+            "num_modes": 6,
+            **(params or {}),
+        }
+        payload_json = json.dumps(p, ensure_ascii=False)
+
+        return f'''
+import json
+p = json.loads(r\'\'\'{payload_json}\'\'\')
+
+model = ExtAPI.DataModel.Project.Model
+geom = model.Geometry
+
+body = geom.AddPrimitiveBox(
+    X1=0, Y1=0, Z1=0,
+    X2=p["length"], Y2=p["width"], Z2=p["height"]
+)
+
+mat = model.Materials.AddMaterial("CustomSteel")
+mat.CreateProperty("Density").SetData(7850)
+mat.CreateProperty("Young's Modulus").SetData(p["young_modulus"])
+mat.CreateProperty("Poisson's Ratio").SetData(p["poisson_ratio"])
+body.Material = mat.Name
+
+analysis = model.AddModalAnalysis()
+analysis.NumberOfModes = p["num_modes"]
+
+# 固定约束
+fixed_ns = model.AddNamedSelection()
+fixed_ns.Name = "FIXED_END"
+fixed_ns.Location = body.Faces[0]
+fixed_support = analysis.AddFixedSupport()
+fixed_support.Location = fixed_ns
+
+analysis.Solve()
+
+solution = analysis.Solution
+freqs = []
+for i, mode in enumerate(solution.GetChildren(DataModelObjectCategory.Result], 1):
+    if hasattr(mode, "Frequency"):
+        freqs.append({{"order": i + 1, "frequency_hz": float(mode.Frequency)}})
+
+wb_script_result = json.dumps({{
+    "template": "modal_analysis",
+    "parameters": p,
+    "frequency": {{"modes": freqs}}
+}}, ensure_ascii=False)
+'''.strip()
+
+    # ───────────────────────────────
+    # 批量接触（已有）
+    # ───────────────────────────────
+
     def preview_batch_contact_plan(
         self,
         source_named_selection_prefix: str,
@@ -82,7 +445,14 @@ class MechanicalRunner:
         contact_name_prefix: str = "AUTO_CONTACT_",
     ) -> dict:
         """预览按 Named Selection 前缀批量创建接触的方案。"""
-        normalized_contact_type = self._normalize_contact_type(contact_type)
+        try:
+            normalized_contact_type = self._normalize_contact_type(contact_type)
+        except ValueError as exc:
+            return {
+                "success": False,
+                "mode": "invalid_contact_type",
+                "message": str(exc),
+            }
 
         return {
             "success": True,
@@ -111,7 +481,14 @@ class MechanicalRunner:
         working_directory: str | None = None,
     ) -> dict:
         """执行基于 Named Selection 的批量接触创建。"""
-        normalized_contact_type = self._normalize_contact_type(contact_type)
+        try:
+            normalized_contact_type = self._normalize_contact_type(contact_type)
+        except ValueError as exc:
+            return {
+                "success": False,
+                "mode": "invalid_contact_type",
+                "message": str(exc),
+            }
 
         # 中文说明：
         # 默认不真实启动 Mechanical，只保留接口和脚本。

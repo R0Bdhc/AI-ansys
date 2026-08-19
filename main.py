@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -8,6 +9,7 @@ from pydantic import BaseModel, Field
 from ansys_runner import AnsysRunner
 from llm_analyzer import LLMAnalyzer
 from log_parser import detect_errors, load_log_text
+from mechanical_post_processor import MechanicalPostProcessor
 from mechanical_runner import MechanicalRunner
 from report_generator import build_markdown_report, save_markdown_report
 
@@ -85,9 +87,46 @@ class PostprocessRequest(BaseModel):
     basename: str = Field(default="post", description="输出文件前缀。")
 
 
+class MechanicalScriptRequest(BaseModel):
+    script: str = Field(description="在 Mechanical 中执行的 Python 脚本字符串。")
+    context: str = Field(default="custom", description="脚本上下文标识。")
+    launch_mechanical: bool = Field(
+        default=False,
+        description="是否真实启动 Mechanical。False 时仅返回预览。",
+    )
+    working_directory: Optional[str] = Field(
+        default=None,
+        description="Mechanical 工作目录。",
+    )
+
+
+class MechanicalExtractRequest(BaseModel):
+    working_directory: str = Field(description="Mechanical 工作目录绝对路径。")
+    result_types: Optional[list[str]] = Field(
+        default=None,
+        description="结果类型列表，例如 [\"stress\", \"displacement\", \"frequency\"。",
+    )
+
+
+class MechanicalImageRequest(BaseModel):
+    working_directory: str = Field(description="Mechanical 工作目录绝对路径。")
+    object_name: str = Field(default="Equivalent Stress", description="结果对象名称，例如 Equivalent Stress / Total Deformation。")
+    image_type: str = Field(default="stress", description="图片类型：stress / displacement / deformation。")
+    basename: str = Field(default="mechanical", description="输出文件前缀。")
+
+
+class MechanicalTemplateRequest(BaseModel):
+    template_type: str = Field(description="模板类型：cantilever_beam / modal_analysis。")
+    params: Optional[dict] = Field(default=None, description="JSON 参数，覆盖模板默认值。")
+    working_directory: Optional[str] = Field(default=None, description="Mechanical 工作目录。")
+    launch_mechanical: bool = Field(default=False, description="是否真实启动 Mechanical。False 时仅返回脚本预览。")
+    run_postprocess: bool = Field(default=False, description="求解完成后是否自动执行后处理可视化。")
+
+
 llm_analyzer = LLMAnalyzer()
 ansys_runner = AnsysRunner()
 mechanical_runner = MechanicalRunner()
+mechanical_post_processor = MechanicalPostProcessor(output_dir="reports")
 
 
 @app.get("/")
@@ -152,6 +191,167 @@ def mechanical_contact_batch_execute(request: MechanicalBatchContactRequest) -> 
         launch_mechanical=request.launch_mechanical,
         working_directory=request.working_directory,
     )
+
+
+@app.post("/mechanical-run-script")
+def mechanical_run_script(request: MechanicalScriptRequest) -> dict:
+    result = mechanical_runner.run_python_script(
+        script=request.script,
+        context=request.context,
+        launch_mechanical=request.launch_mechanical,
+        working_directory=request.working_directory,
+    )
+
+    if not result.get("success") or not request.launch_mechanical:
+        return result
+
+    # 自动串联 LLM 分析 + 报告生成链路
+    _attach_mechanical_analysis(result)
+    return result
+
+
+@app.post("/mechanical-extract-results")
+def mechanical_extract_results(request: MechanicalExtractRequest) -> dict:
+    # 构造结果提取脚本并执行
+    script = mechanical_post_processor.build_result_extraction_script(request.result_types)
+    exec_result = mechanical_runner.run_python_script(
+        script=script,
+        context="result_extraction",
+        launch_mechanical=True,
+        working_directory=request.working_directory,
+    )
+
+    if not exec_result.get("success"):
+        return exec_result
+
+    extracted = mechanical_runner.extract_mechanical_results(
+        script_result=exec_result,
+        result_types=request.result_types,
+    )
+    exec_result["extracted_results"] = extracted
+    return exec_result
+
+
+@app.post("/mechanical-export-image")
+def mechanical_export_image(request: MechanicalImageRequest) -> dict:
+    image_path = str(Path("reports") / f"{request.basename}_{request.image_type}.png")
+
+    if request.image_type == "stress":
+        script = mechanical_post_processor.build_stress_export_script(image_path)
+    elif request.image_type in ("displacement", "deformation"):
+        script = mechanical_post_processor.build_displacement_export_script(image_path)
+    else:
+        return {
+            "success": False,
+            "error": f"不支持的 image_type：{request.image_type}。支持：stress / displacement / deformation。",
+        }
+
+    return mechanical_runner.export_mechanical_image(
+        mechanical_exec=None,
+        script=script,
+        image_path=image_path,
+        context=request.image_type,
+    )
+
+
+@app.post("/mechanical-run-template")
+def mechanical_run_template(request: MechanicalTemplateRequest) -> dict:
+    if request.template_type == "cantilever_beam":
+        script = mechanical_runner._build_cantilever_beam_script(request.params)
+    elif request.template_type == "modal_analysis":
+        script = mechanical_runner._build_modal_analysis_script(request.params)
+    else:
+        return {
+            "success": False,
+            "error": f"未知模板类型：{request.template_type}。可用：cantilever_beam / modal_analysis。",
+        }
+
+    result = mechanical_runner.run_python_script(
+        script=script,
+        context=f"template_{request.template_type}",
+        launch_mechanical=request.launch_mechanical,
+        working_directory=request.working_directory,
+    )
+
+    if not result.get("success") or not request.launch_mechanical:
+        return result
+
+    # 自动串联 LLM 分析 + 报告生成
+    _attach_mechanical_analysis(result)
+
+    # 如果请求了后处理，执行可视化
+    if request.run_postprocess:
+        post_result = mechanical_post_processor.run_full_postprocess(
+            runner=mechanical_runner,
+            working_directory=request.working_directory,
+            basename=request.template_type,
+        )
+        result["postprocess"] = post_result
+
+        # 将图片路径传入报告
+        image_paths = [
+            plot.get("image_path")
+            for plot in post_result.get("plots", [])
+            if plot.get("success") and plot.get("image_path")
+        ]
+        if image_paths and "analysis" in result:
+            # 重新生成报告，包含图片
+            _regenerate_report_with_images(result, image_paths)
+
+    return result
+
+
+def _attach_mechanical_analysis(result: dict) -> None:
+    """为 Mechanical 执行结果附加 LLM 分析 + Markdown 报告。"""
+    # Mechanical 目前没有标准日志文件，使用 execution_result 作为分析源
+    execution_result = result.get("execution_result", {})
+    raw_text = json.dumps(execution_result, ensure_ascii=False, indent=2)
+    detected_errors = detect_errors(raw_text)
+
+    llm_result = llm_analyzer.analyze(
+        source_name=result.get("context", "mechanical"),
+        log_text=raw_text,
+        detected_errors=detected_errors,
+    )
+
+    engineering_results = mechanical_runner.extract_mechanical_results(
+        script_result=result,
+    )
+
+    markdown_content = build_markdown_report(
+        source_name=result.get("context", "mechanical"),
+        detected_errors=detected_errors,
+        llm_result=llm_result,
+        engineering_results=engineering_results,
+    )
+    report_path = save_markdown_report(markdown_content)
+
+    result["analysis"] = {
+        "success": True,
+        "error_count": len(detected_errors),
+        "detected_errors": detected_errors,
+        "llm_result": llm_result,
+        "report_path": str(report_path),
+        "markdown_preview": markdown_content,
+    }
+
+
+def _regenerate_report_with_images(result: dict, image_paths: list[str]) -> None:
+    """重新生成报告，嵌入后处理图片。"""
+    analysis = result.get("analysis", {})
+    if not analysis:
+        return
+
+    markdown_content = build_markdown_report(
+        source_name=result.get("context", "mechanical"),
+        detected_errors=analysis.get("detected_errors", []),
+        llm_result=analysis.get("llm_result", {}),
+        engineering_results=mechanical_runner.extract_mechanical_results(script_result=result),
+        image_paths=image_paths,
+    )
+    report_path = save_markdown_report(markdown_content)
+    result["analysis"]["report_path"] = str(report_path)
+    result["analysis"]["markdown_preview"] = markdown_content
 
 
 @app.get("/templates")

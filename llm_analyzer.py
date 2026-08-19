@@ -287,7 +287,8 @@ class LLMAnalyzer:
         truncated_log_text = log_text[:4000]
 
         return f"""
-你是一名 ANSYS 结构与非线性分析专家，请根据日志帮助工程师定位问题。
+你是一名 ANSYS 结构、非线性与 Mechanical 分析专家，精通 MAPDL APDL 命令流和 Mechanical Workbench 仿真流程。
+请根据日志帮助工程师定位问题，并提供可操作的修改建议。
 请使用中文输出，并严格按下面格式回答：
 1. 问题概述
 2. 可能原因
@@ -330,6 +331,37 @@ class LLMAnalyzer:
             possible_causes.append("接触面网格过粗，导致接触搜索与法向响应不稳定。")
             suggestions.append("检查初始接触状态、法向刚度和接触算法设置。")
             suggestions.append("局部加密接触区网格，并检查接触/目标面方向。")
+
+        # ── Mechanical 专用规则 ──
+        if "mechanical_solver_failed" in error_codes:
+            possible_causes.append("Mechanical 模型设置存在矛盾，如约束与载荷冲突、材料参数不合理。")
+            possible_causes.append("网格质量过低，存在扭曲单元或长宽比过大单元。")
+            suggestions.append("检查边界条件和载荷定义是否完整且不自相矛盾。")
+            suggestions.append("重新划分网格，检查单元质量（Jacobian、长宽比）。")
+
+        if "mechanical_contact_not_converged" in error_codes:
+            possible_causes.append("Mechanical 接触法向刚度因子（FKN）设置不合理。")
+            possible_causes.append("接触初始状态为 Far/Open，或 Pinball 半径过小导致搜索失败。")
+            suggestions.append("调整接触刚度因子（弯曲主导建议 0.1~0.5，调试穿透可从 0.01 开始）。")
+            suggestions.append("检查接触初始状态，必要时调整 Pinball 半径或启用接触稳定化。")
+
+        if "mechanical_mesh_failed" in error_codes:
+            possible_causes.append("几何存在缺陷（短边、缝隙、非流形边）。")
+            possible_causes.append("全局或局部网格尺寸设置冲突，导致无法生成单元。")
+            suggestions.append("修复几何缺陷，使用 SpaceClaim 或 DesignModeler 清理模型。")
+            suggestions.append("放宽局部加密尺寸，或改用 Patch Conforming / Patch Independent 方法。")
+
+        if "mechanical_large_deformation" in error_codes:
+            possible_causes.append("未启用大变形效应，但当前变形量已超出小变形假设。")
+            possible_causes.append("载荷过大或材料刚度设置过低，导致结构失稳。")
+            suggestions.append("在 Analysis Settings 中启用 Large Deflection。")
+            suggestions.append("减小载荷步长，检查材料参数和约束是否足够。")
+
+        if "mechanical_rigid_body_motion" in error_codes:
+            possible_causes.append("Mechanical 约束不足，存在未约束的自由度。")
+            possible_causes.append("接触对设置不完整，导致部件间缺少传力路径。")
+            suggestions.append("检查所有部件是否都有足够的边界约束。")
+            suggestions.append("检查接触定义是否覆盖所有相邻部件的界面。")
 
         return {
             "mode": "rule_based",

@@ -5,11 +5,11 @@
       "args": [
         "-y",
         "@anthropic/mcp-server-filesystem",
-        "d:/ansysagent/sample_inputs",
-        "d:/ansysagent/sample_logs",
-        "d:/ansysagent/ansys_workspace",
-        "d:/ansysagent/reports",
-        "d:/ansysagent/runtime_data"
+        "d:/Projects/AI-ansys/sample_inputs",
+        "d:/Projects/AI-ansys/sample_logs",
+        "d:/Projects/AI-ansys/ansys_workspace",
+        "d:/Projects/AI-ansys/reports",
+        "d:/Projects/AI-ansys/runtime_data"
       ],
       "description": "安全访问 CAE Agent 工作目录：输入文件、日志、执行产物和报告。"
     },
@@ -28,21 +28,21 @@
     "ansys-local": {
       "command": "python",
       "args": [
-        "d:/ansysagent/.claude/mcp-servers/ansys-mcp/server.py"
+        "d:/Projects/AI-ansys/.claude/mcp-servers/ansys-mcp/server.py"
       ],
       "env": {
         "ANSYS241_DIR": "${ANSYS241_DIR}",
         "ANSYSLIC_DIR": "${ANSYSLIC_DIR}",
         "AWP_ROOT241": "${AWP_ROOT241}",
-        "PYTHONPATH": "d:/ansysagent"
+        "PYTHONPATH": "d:/Projects/AI-ansys"
       },
-      "description": "自定义 ANSYS MCP 服务器，封装 PyMAPDL 执行和状态查询。"
+      "description": "自定义 ANSYS MCP 服务器，封装 PyMAPDL 执行、PyMechanical 执行和状态查询。支持 MAPDL 求解、Mechanical 脚本执行与批量接触创建、日志分析与 LLM 诊断。"
     }
   },
   "notes": {
     "filesystem": "提供对项目工作目录的安全文件读写，Claude 可以直接浏览 ansys_workspace 中的求解产物。",
     "deepseek": "如果社区没有 deepseek-mcp-server，可以用 OpenAI 兼容的 MCP 替代，设置 base_url 指向 api.deepseek.com。",
-    "ansys-local": "自定义 MCP 服务器，需要先安装 ansys-mapdl-core。如果当前环境无 ANSYS，此服务器启动会失败但不影响其他 MCP。",
+    "ansys-local": "自定义 MCP 服务器，需要先安装 ansys-mapdl-core 和 ansys-mechanical-core。如果当前环境无 ANSYS，此服务器启动会失败但不影响其他 MCP。",
     "startup": "所有 MCP 服务器在 Claude Code 启动时自动加载。ansys-local 失败不会阻塞其他服务器。"
   }
 }
