@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "project": "ai-ansys",
+  "generated": "2026-07-31T17:32:21+00:00",
+  "canonical_root": "D:/Projects/skills",
+  "vault_path": "D:/knowledgement",
+  "knowledge_folder": "Knowledge/Skills",
+  "skills": {
+    "knowledge-driven-skill-sync": {
+      "destination": "skills/knowledge-driven-skill-sync",
+      "canonical_hash": "5b301cdea41c374297f1522bd46623e4e003d4b54875d091228bf283ae440c46"
+    },
+    "batch-contact": {
+      "destination": "skills/batch-contact",
+      "canonical_hash": "4bf5d9430461174110067efb8d72fc9a2bfea5771de2302bcc20f96e1456f8d9"
+    },
+    "check-ansys-env": {
+      "destination": "skills/check-ansys-env",
+      "canonical_hash": "7154da4d187fda45de2932e2784bccc2dc30d964ac65aa57a35f0fcb276dfb6b"
+    },
+    "run-log-analysis": {
+      "destination": "skills/run-log-analysis",
+      "canonical_hash": "f355df2dd2a85d427763942b09b54b84ec89dbaa3ad3049ca2984f46fec093f2"
+    },
+    "run-mapdl-input": {
+      "destination": "skills/run-mapdl-input",
+      "canonical_hash": "1832f84986b527ab487a61d78c889f02671f41fbbfb62a5dc8be51f162a7c6be"
+    },
+    "meeting-notes-organizer": {
+      "destination": "skills/meeting-notes-organizer",
+      "canonical_hash": "be8010a297d0298500a9d9c56b02de60fe9be409e174fb8062dac49c9cdc034e"
+    },
+    "code-debugger": {
+      "destination": "skills/code-debugger",
+      "canonical_hash": "1f3300c60918b796dbeac464797cae9e06b426958c72678c102b304d509aa286"
+    },
+    "git-workflow": {
+      "destination": "skills/git-workflow",
+      "canonical_hash": "26b7bd5504fbaf118146ac117b1afece7d4553685dc9effeb40ebd9a142d1c53"
+    },
+    "pre-push-review": {
+      "destination": "skills/pre-push-review",
+      "canonical_hash": "73391a3c5365847266d77ee86964f9945cce32d15128fd85dbf8903da9789581"
+    },
+    "pull-audit": {
+      "destination": "skills/pull-audit",
+      "canonical_hash": "8d7e50928b9a260b72dd93390a37c09a78a9981785dfb95ae1eb54fe8808ab46"
+    },
+    "cross-agent-audit": {
+      "destination": "skills/cross-agent-audit",
+      "canonical_hash": "0ea8d5a8e8ae753638e42b4d112c34c6dafafd34dd4c6aa87b5399d8757fb612"
+    },
+    "skill-creator-fable5": {
+      "destination": "skills/skill-creator-fable5",
+      "canonical_hash": "ac9691096d9140c96f7d2f719ad107093b14c912462ebd77acccc509f9001bb5"
+    },
+    "fable5-code-principle": {
+      "destination": "skills/fable5-code-principle",
+      "canonical_hash": "9ddc1db47f585d0027fc1b846cebe7eb4b5ca01a68245fae4fab4a0f7e2464cc"
+    }
+  },
+  "files": {
+    ".githooks/pre-push": "e7a5a41831872c8b4b396f5834dee4e7abdde51eaa0d33bc7b53526968f08e47",
+    ".skills/project.json": "8c22157913374df105327779947512ee8e97e2c110b8bd90f53fe81b3e240dfc",
+    ".skills/skill_lifecycle.py": "a83b19d856ccf76e0f0c007cf13a1ace1986c4d1437a9bb5daf9e6f317e6bc81",
+    "AGENTS.md": "6306ea8bf8cd91aac48797dc66674ebb0adc77190afcb22d60aa4b98f61ca070",
+    "skills/INDEX.md": "19dcd07688fa53b1226d0030b041abb2ac424f8cedb8d23391aeeeebd4f33ce7",
+    "skills/batch-contact/SKILL.md": "c88ee1c7a3108f18cffaf7d43e4630fe364302dc1026c4733eedfddf6036ed66",
+    "skills/batch-contact/agents/openai.yaml": "916a6f665a3eb6afaa6554058eec1761c0605a02774e07bff94f5552afb88d7e",
+    "skills/check-ansys-env/SKILL.md": "dd6a334480b97d1f73f93ec64ab5e580713d41c63991e28b70e2656cdc6b1d86",
+    "skills/check-ansys-env/agents/openai.yaml": "1ea5b33d242afad6e32aafb3c6580484f29fb0c5372c51a192cf58b48a278c06",
+    "skills/code-debugger/SKILL.md": "eb81bc534551401806111bd1a3b3cb49ce3bd6af78c0701a63fa3aba831fde56",
+    "skills/code-debugger/agents/openai.yaml": "9cc602ac1226965f4637fdf995f1e252381bcf99472bc4a7dca1156ff7788a64",
+    "skills/cross-agent-audit/SKILL.md": "b7d1e446c9e94ea572d83fed0539f41f9c355de676f67cc1ea46c3a0b5f2f3cc",
+    "skills/cross-agent-audit/agents/openai.yaml": "c31440b30bec20943191ea4c31dce18898c1291245d927a461c6b13a4fa27c73",
+    "skills/fable5-code-principle/SKILL.md": "cea377362ae7c89a45fb3398c1b5d707676b1c5deda44a13070313c6cd777b6c",
+    "skills/fable5-code-principle/agents/openai.yaml": "014ec7c11aef3745cb1d518347a96fa69e023acc61aab6b01f65433e3e99754e",
+    "skills/git-workflow/SKILL.md": "a4110bf0920adb5f5d1ac4ffdf741013b776359eb76dc335703374427fe57a37",
+    "skills/git-workflow/agents/openai.yaml": "36eb0cdd496f15b40171c4d83b30e4dc73dab1e25d9a0815ea4536b6e0743611",
+    "skills/knowledge-driven-skill-sync/SKILL.md": "23cd1f26dc782ab937b890ab9bfa0fedb6d703a5a5099a785d68ecb4d2550454",
+    "skills/knowledge-driven-skill-sync/agents/openai.yaml": "66d91203434c60495b0c1dcb3e8eb1e9bf60558f29389d4b905595baaeb8b184",
+    "skills/knowledge-driven-skill-sync/references/knowledge.md": "f2d260fb3f2a1904960a2528fb0410097eb7ce3c2706d0fc8e57e203152bf2d5",
+    "skills/knowledge-driven-skill-sync/references/project-map.json": "3d03c40e87319da2c1757c11df803a407905c5cdfa17c430203aea4186cf47af",
+    "skills/knowledge-driven-skill-sync/scripts/skill_lifecycle.py": "a83b19d856ccf76e0f0c007cf13a1ace1986c4d1437a9bb5daf9e6f317e6bc81",
+    "skills/meeting-notes-organizer/SKILL.md": "628d819f52abfcc765f1b1ab92b023035b10366173761b40c8536dc19a3147bc",
+    "skills/meeting-notes-organizer/agents/openai.yaml": "76b150a820e5bb66d6e54ddea3d0f2e82e1d7412d0622607fb20e3199805fd3d",
+    "skills/pre-push-review/SKILL.md": "22018ed665a6d13df450407808dd7737599022f92b54c0bdeec199f60d519f4b",
+    "skills/pre-push-review/agents/openai.yaml": "3cdd52d54f6a775b3089ef55c2089818a65869e6272eea1bc2e76e5e5f1a7a20",
+    "skills/pull-audit/SKILL.md": "a51b430e72aac72d30c75b8fd33df77a752bd829f818368ceea34a2065cc6d4f",
+    "skills/pull-audit/agents/openai.yaml": "bd1f68f522092141e89e7b751f874caf19a76a32b92245d8254c2ca81b72a414",
+    "skills/run-log-analysis/SKILL.md": "75d3b0029c14f688f3417a37bb4bd384f25b022399c4aec2469e93cf9346b90b",
+    "skills/run-log-analysis/agents/openai.yaml": "bb9568ca9fd0d93f8d023e34228723d4e6cb90775b284365cb93de1c5bc5cede",
+    "skills/run-mapdl-input/SKILL.md": "4d8ef875826cae3d501fdf7d9d629d683ae4e9130896b1d90f34e1bf3b6eb8ac",
+    "skills/run-mapdl-input/agents/openai.yaml": "0d75d3df4899f43f39f389138e97349d707d95d3458b7b8755d1d013dafef5a8",
+    "skills/skill-creator-fable5/SKILL.md": "503adf91c3ff7a7aedccdf3c15fe82a5080f48308a85af2f40c630a9252923cc",
+    "skills/skill-creator-fable5/agents/openai.yaml": "2ba4892908355ab93896a45a534bdfad0b2b8869ee0d2962b201b71984e518ae"
+  },
+  "required_tracked": [
+    ".skills/skills-lock.json"
+  ]
+}

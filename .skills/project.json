@@ -1,0 +1,20 @@
+{
+  "project": "ai-ansys",
+  "canonical_root": "D:/Projects/skills",
+  "destination": "skills",
+  "skills": [
+    "knowledge-driven-skill-sync",
+    "batch-contact",
+    "check-ansys-env",
+    "run-log-analysis",
+    "run-mapdl-input",
+    "meeting-notes-organizer",
+    "code-debugger",
+    "git-workflow",
+    "pre-push-review",
+    "pull-audit",
+    "cross-agent-audit",
+    "skill-creator-fable5",
+    "fable5-code-principle"
+  ]
+}

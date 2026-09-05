@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "vault_path": "D:/knowledgement",
+  "knowledge_folder": "Knowledge/Skills",
+  "projects": [
+    {
+      "name": "ai-ansys",
+      "path": "AI-ansys",
+      "destination": "skills",
+      "skills": [
+        "knowledge-driven-skill-sync",
+        "batch-contact",
+        "check-ansys-env",
+        "run-log-analysis",
+        "run-mapdl-input",
+        "meeting-notes-organizer",
+        "code-debugger",
+        "git-workflow",
+        "pre-push-review",
+        "pull-audit",
+        "cross-agent-audit",
+        "skill-creator-fable5",
+        "fable5-code-principle"
+      ]
+    },
+    {
+      "name": "code-check",
+      "path": "code_check",
+      "destination": "skills",
+      "skills": [
+        "knowledge-driven-skill-sync",
+        "code-debugger",
+        "git-workflow",
+        "pre-push-review",
+        "pull-audit",
+        "cross-agent-audit",
+        "skill-creator-fable5",
+        "fable5-code-principle"
+      ]
+    },
+    {
+      "name": "dynamic",
+      "path": "git-clones/dynamic",
+      "destination": "skills",
+      "skills": [
+        "knowledge-driven-skill-sync",
+        "code-debugger",
+        "git-workflow",
+        "pre-push-review",
+        "pull-audit",
+        "cross-agent-audit"
+      ]
+    },
+    {
+      "name": "ros-test",
+      "path": "ros-test",
+      "destination": "skills",
+      "skills": [
+        "knowledge-driven-skill-sync",
+        "code-debugger",
+        "git-workflow",
+        "pre-push-review",
+        "pull-audit",
+        "cross-agent-audit"
+      ]
+    },
+    {
+      "name": "ansys-agent",
+      "path": "sim-agent/ansys-agent",
+      "destination": ".claude/skills",
+      "skills": [
+        "knowledge-driven-skill-sync",
+        "batch-contact",
+        "check-ansys-env",
+        "run-log-analysis",
+        "run-mapdl-input",
+        "meeting-notes-organizer",
+        "code-debugger",
+        "git-workflow",
+        "pre-push-review",
+        "pull-audit",
+        "cross-agent-audit",
+        "skill-creator-fable5",
+        "fable5-code-principle"
+      ]
+    },
+    {
+      "name": "dynamic-sim",
+      "path": "sim-agent/dynamic-sim",
+      "destination": "skills",
+      "skills": [
+        "knowledge-driven-skill-sync",
+        "code-debugger",
+        "git-workflow",
+        "pre-push-review",
+        "pull-audit",
+        "cross-agent-audit"
+      ]
+    },
+    {
+      "name": "unified-obsidian-knowledge",
+      "path": "unified-obsidian-knowledge",
+      "destination": "skills",
+      "skills": [
+        "batch-contact",
+        "check-ansys-env",
+        "code-debugger",
+        "conversation-to-knowledge",
+        "cross-agent-audit",
+        "defuddle",
+        "fable5-code-principle",
+        "git-workflow",
+        "json-canvas",
+        "knowledge-driven-skill-sync",
+        "knowledge-ingest",
+        "knowledge-publish",
+        "knowledge-refine",
+        "meeting-notes-organizer",
+        "obsidian-bases",
+        "obsidian-cli",
+        "obsidian-markdown",
+        "pre-push-review",
+        "pull-audit",
+        "run-log-analysis",
+        "run-mapdl-input",
+        "skill-creator-fable5",
+        "subject-color-tag",
+        "subject-induction"
+      ]
+    }
+  ]
+}

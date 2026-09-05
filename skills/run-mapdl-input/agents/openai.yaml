@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run MAPDL Input"
+  short_description: "Validate and execute MAPDL input files with analysis"
+  default_prompt: "Use $run-mapdl-input to run this APDL input and analyze its log."

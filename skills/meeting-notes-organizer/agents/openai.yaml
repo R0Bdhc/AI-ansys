@@ -1,0 +1,4 @@
+interface:
+  display_name: "Meeting Notes Organizer"
+  short_description: "Structure technical meetings into actionable notes"
+  default_prompt: "Use $meeting-notes-organizer to organize this transcript into minutes."

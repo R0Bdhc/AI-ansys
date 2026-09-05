@@ -1,0 +1,4 @@
+interface:
+  display_name: "Check ANSYS Environment"
+  short_description: "Diagnose CAE Agent and ANSYS runtime readiness"
+  default_prompt: "Use $check-ansys-env to diagnose the current ANSYS environment."

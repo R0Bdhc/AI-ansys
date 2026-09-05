@@ -1,0 +1,76 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20260905T111522148Z-19820-f042ada52052",
+  "runId": "20260905T111522148Z-19820-f042ada52052",
+  "runStatus": "completed",
+  "coverage": {
+    "status": "complete",
+    "reasons": []
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": "749e92bbf55d8da302ce9efb6c462a96e1e89b2f",
+  "diffHash": "1dd2189ab6151ae69615fa4d6604bc50706c2f5072e2ba7020316ee20a80fcae",
+  "rulesVersion": "unavailable",
+  "sessionHash": "b79f867cc924670c933fe5a7947933715dc21a299194ae2cf0be8e75a437a678",
+  "reportRef": ".mimosa/reports/task-review-sess_a487340e-5feb-4e92-b58d-028099642b21-20260905T111522148Z-19820-f042ada52052.json",
+  "events": [],
+  "observedFindingIds": [
+    "mimosa-1a62d2ff200f880a56703d3b"
+  ],
+  "verifiedFiles": [
+    {
+      "file": "solve_watcher.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "log_parser.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "report_generator.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "analysis_pipeline.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "observability.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "llm_analyzer.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "ansys_runner.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "mechanical_runner.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "job_manager.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "main.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-09-05T11:15:22.407Z"
+}

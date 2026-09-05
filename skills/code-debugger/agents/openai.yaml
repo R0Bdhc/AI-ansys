@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Debugger"
+  short_description: "Reproduce, fix, verify, and document code defects"
+  default_prompt: "Use $code-debugger to find and fix this bug with regression checks."

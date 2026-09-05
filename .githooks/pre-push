@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+repo_root=$(git rev-parse --show-toplevel)
+checker="$repo_root/.skills/skill_lifecycle.py"
+
+if command -v python3 >/dev/null 2>&1; then
+  python3 "$checker" verify-project --repo "$repo_root"
+elif command -v python >/dev/null 2>&1; then
+  python "$checker" verify-project --repo "$repo_root"
+elif command -v py >/dev/null 2>&1; then
+  py -3 "$checker" verify-project --repo "$repo_root"
+else
+  echo "BLOCKED: Python is required to verify managed skills." >&2
+  exit 1
+fi
+
+if [ -f "$repo_root/hooks/pre-push" ]; then
+  bash "$repo_root/hooks/pre-push" "$@"
+fi

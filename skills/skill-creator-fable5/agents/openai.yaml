@@ -1,0 +1,4 @@
+interface:
+  display_name: "Skill Creator Fable 5"
+  short_description: "Create and improve skills with Fable 5 standards"
+  default_prompt: "Use $skill-creator-fable5 to design and validate a reusable skill."

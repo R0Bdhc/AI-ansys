@@ -25,6 +25,8 @@ from typing import Any
 
 from openai import OpenAI
 
+from observability import record_llm_call
+
 
 # ───────────────────────────────
 # 提供商预设配置
@@ -140,6 +142,47 @@ class LLMAnalyzer:
         except Exception:
             return None
 
+    def update_config(
+        self,
+        api_key: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+    ) -> dict[str, Any]:
+        """运行时更新 LLM 配置（仅内存生效，重启后回到 .env 配置）。
+
+        切换 provider 且未显式给 model/base_url 时，回落到该 provider 的预设默认值。
+        返回 get_config() 轻量结果；连通性由调用方通过 get_status(force_refresh=True) 验证。
+        """
+        if provider:
+            provider = provider.strip().lower()
+            if provider not in PROVIDER_PRESETS:
+                raise ValueError(f"不支持的提供商：{provider}。可用：{sorted(PROVIDER_PRESETS)}")
+            self.config.provider = provider
+            preset = PROVIDER_PRESETS[provider]
+            if not model or not str(model).strip():
+                self.config.model = preset["model"]
+            if not base_url or not str(base_url).strip():
+                if preset["base_url"]:
+                    self.config.base_url = preset["base_url"]
+        if base_url is not None and str(base_url).strip():
+            self.config.base_url = str(base_url).strip()
+        if model is not None and str(model).strip():
+            self.config.model = str(model).strip()
+        if api_key is not None and str(api_key).strip():
+            self.config.api_key = str(api_key).strip()
+
+        # 同步进程环境变量，保持后续重新解析路径一致
+        os.environ["LLM_PROVIDER"] = self.config.provider
+        os.environ["LLM_API_KEY"] = self.config.api_key
+        os.environ["LLM_BASE_URL"] = self.config.base_url
+        os.environ["LLM_MODEL"] = self.config.model
+
+        self.client = self._create_client() if self.config.is_configured() else None
+        self._last_health_status = None
+        self._last_health_check_at = 0.0
+        return self.get_config()
+
     # ───────────────────────────────
     # 状态查询
     # ───────────────────────────────
@@ -208,6 +251,31 @@ class LLMAnalyzer:
     # ───────────────────────────────
 
     def analyze(self, source_name: str, log_text: str, detected_errors: list[dict]) -> dict:
+        """分析入口：执行诊断并记录观测事件（仪表盘 LLM 面板数据源）。"""
+        started = time.monotonic()
+        result = self._analyze_impl(source_name, log_text, detected_errors)
+        latency_ms = (time.monotonic() - started) * 1000
+        try:
+            record_llm_call(
+                source_name=source_name,
+                mode=result.get("mode", "unknown"),
+                model=result.get("model") or (self.config.model if self.client else None),
+                provider=self.config.provider,
+                detected_error_count=len(detected_errors),
+                prompt=(
+                    self._build_prompt(source_name, log_text, detected_errors)
+                    if detected_errors
+                    else None
+                ),
+                response=result.get("raw_analysis"),
+                latency_ms=latency_ms,
+                llm_error=result.get("llm_error"),
+            )
+        except Exception:
+            pass  # 观测失败不影响分析结果
+        return result
+
+    def _analyze_impl(self, source_name: str, log_text: str, detected_errors: list[dict]) -> dict:
         if not detected_errors:
             return {
                 "mode": "rule_based",

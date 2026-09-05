@@ -155,7 +155,13 @@ class AnsysRunner:
             ],
         }
 
-    def run_demo(self, launch_mapdl: bool = False, working_directory: str | None = None) -> dict:
+    def run_demo(
+        self,
+        launch_mapdl: bool = False,
+        working_directory: str | None = None,
+        session_holder: dict | None = None,
+    ) -> dict:
+        """运行内置示例。session_holder 由异步任务层传入，launch 后写入 mapdl 句柄供超时强杀。"""
         resolved_workdir = Path(working_directory) if working_directory else self.default_workdir
         resolved_workdir.mkdir(parents=True, exist_ok=True)
         exec_file = self._find_mapdl_executable()
@@ -176,6 +182,7 @@ class AnsysRunner:
                 exec_file=exec_file,
                 commands=self._build_demo_commands(),
                 source_name="internal_demo_commands",
+                session_holder=session_holder,
             )
         except Exception as exc:
             return {
@@ -188,7 +195,12 @@ class AnsysRunner:
                 "apdl_commands": self._build_demo_commands(),
             }
 
-    def run_input_file(self, input_file_path: str, working_directory: str | None = None) -> dict:
+    def run_input_file(
+        self,
+        input_file_path: str,
+        working_directory: str | None = None,
+        session_holder: dict | None = None,
+    ) -> dict:
         input_path = Path(input_file_path)
         validation_error = self._validate_input_file(input_path)
         if validation_error:
@@ -203,6 +215,7 @@ class AnsysRunner:
                 working_directory=resolved_workdir,
                 exec_file=exec_file,
                 input_path=input_path,
+                session_holder=session_holder,
             )
         except Exception as exc:
             return {
@@ -222,6 +235,7 @@ class AnsysRunner:
         working_directory: Path,
         exec_file: Path | None,
         input_path: Path,
+        session_holder: dict | None = None,
     ) -> dict:
         self._prepare_pymapdl_runtime()
 
@@ -235,6 +249,8 @@ class AnsysRunner:
             launch_kwargs["exec_file"] = str(exec_file)
 
         mapdl = launch_mapdl(**launch_kwargs)
+        if session_holder is not None:
+            session_holder["mapdl"] = mapdl
         try:
             output_text = str(mapdl.input(str(input_path.resolve())))
             log_files = self._collect_log_files(working_directory)
@@ -264,6 +280,7 @@ class AnsysRunner:
         exec_file: Path | None,
         commands: list[str],
         source_name: str,
+        session_holder: dict | None = None,
     ) -> dict:
         self._prepare_pymapdl_runtime()
 
@@ -277,6 +294,8 @@ class AnsysRunner:
             launch_kwargs["exec_file"] = str(exec_file)
 
         mapdl = launch_mapdl(**launch_kwargs)
+        if session_holder is not None:
+            session_holder["mapdl"] = mapdl
         try:
             command_outputs: list[dict[str, str]] = []
             for command in commands:
@@ -341,6 +360,7 @@ class AnsysRunner:
         run_postprocess: bool = False,
         stress_curve_path: list[list[float]] | None = None,
         launch_mapdl: bool = False,
+        session_holder: dict | None = None,
     ) -> dict:
         """运行预定义模板仿真，可选执行后处理可视化。"""
         try:
@@ -375,6 +395,7 @@ class AnsysRunner:
                 exec_file=exec_file,
                 commands=commands,
                 source_name=f"template_{template_type}",
+                session_holder=session_holder,
             )
             result["template_type"] = template_type
             result["params"] = params

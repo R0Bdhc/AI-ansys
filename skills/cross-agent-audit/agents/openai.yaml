@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cross-Agent Audit"
+  short_description: "Run incremental repository security and quality audits"
+  default_prompt: "Use $cross-agent-audit to audit this repository since its last scan."

@@ -11,8 +11,9 @@ def build_markdown_report(
     llm_result: dict,
     engineering_results: dict | None = None,
     image_paths: list[str] | None = None,
+    evidence: dict | None = None,
 ) -> str:
-    """构造 Markdown 报告内容，可选嵌入可视化图片。"""
+    """构造 Markdown 报告内容，可选嵌入可视化图片与流式诊断证据。"""
     lines: list[str] = []
 
     lines.append("# CAE 日志分析报告")
@@ -31,6 +32,8 @@ def build_markdown_report(
     section = 2
     error_section = section
     section += 1
+    evidence_section = section
+    section += 1
     llm_section = section
 
     # ── 可视化结果 ──
@@ -44,6 +47,7 @@ def build_markdown_report(
             lines.append(f"![{img_name}]({img_path})")
             lines.append("")
         error_section += 1
+        evidence_section += 1
         llm_section += 1
 
     lines.append(f"## {error_section}. 错误检测结果")
@@ -59,11 +63,18 @@ def build_markdown_report(
             lines.append(f"- 错误代码：`{item['error_code']}`")
             lines.append(f"- 匹配文本：`{item['matched_text']}`")
             lines.append(f"- 错误说明：{item['description']}")
+            if item.get("occurrences", 1) > 1:
+                lines.append(f"- 出现次数：{item['occurrences']}")
+            if item.get("suggestion"):
+                lines.append(f"- 修正建议：{item['suggestion']}")
             lines.append("")
             lines.append("```text")
             lines.append(item["snippet"])
             lines.append("```")
             lines.append("")
+
+    if evidence:
+        _render_evidence(lines, evidence, evidence_section)
 
     lines.append(f"## {llm_section}. LLM / 规则分析结果")
     lines.append("")
@@ -161,6 +172,90 @@ def _render_engineering_results(lines: list[str], results: dict) -> None:
             for mode in modes:
                 lines.append(f"| {mode['order']} | {mode['frequency_hz']:.4f} |")
             lines.append("")
+
+
+def _render_evidence(lines: list[str], evidence: dict, section_num: int) -> None:
+    """渲染流式诊断证据段（来自 solve_watcher 的 finalize 证据包）。全部字段防御式读取。"""
+    lines.append(f"## {section_num}. 实时诊断证据（流式监视）")
+    lines.append("")
+    lines.append(
+        f"- 监视目录：`{evidence.get('watch_dir', '未知')}`"
+        f" ｜ 结束原因：`{evidence.get('reason', 'unknown')}`"
+        f" ｜ 持续：`{evidence.get('duration_s', 0)}s`"
+        f" ｜ 采集字节：`{evidence.get('total_bytes_seen', 0)}`"
+    )
+    if evidence.get("stalled"):
+        lines.append("- ⚠️ 求解输出出现静默期（stalled），可能存在求解停滞。")
+    if evidence.get("watcher_error"):
+        lines.append(f"- 监视器异常：`{evidence['watcher_error']}`")
+    lines.append("")
+
+    error_events = evidence.get("error_events") or []
+    warning_events = evidence.get("warning_events") or []
+
+    if error_events:
+        lines.append(f"### {section_num}.1 错误事件")
+        lines.append("")
+        lines.append("| 代码 | 标题 | 次数 | 首次出现 | 来源 |")
+        lines.append("|------|------|------|----------|------|")
+        for event in error_events:
+            lines.append(
+                f"| `{event.get('code', 'unknown')}` | {event.get('title', '')} "
+                f"| {event.get('count', 1)} | {event.get('first_seen', '')} "
+                f"| {event.get('source_file', '')} |"
+            )
+        lines.append("")
+
+    if warning_events:
+        lines.append(f"### {section_num}.2 警告事件")
+        lines.append("")
+        lines.append("| 代码 | 标题 | 次数 | 首次出现 | 建议 |")
+        lines.append("|------|------|------|----------|------|")
+        for event in warning_events:
+            lines.append(
+                f"| `{event.get('code', 'unknown')}` | {event.get('title', '')} "
+                f"| {event.get('count', 1)} | {event.get('first_seen', '')} "
+                f"| {event.get('suggestion', '')} |"
+            )
+        lines.append("")
+
+    unmatched = evidence.get("unmatched") or {}
+    unmatched_lines = []
+    for level in ("ERROR", "WARNING"):
+        bucket = unmatched.get(level) or {}
+        count = bucket.get("count", 0)
+        if count:
+            unmatched_lines.append(f"- 未匹配{level}块：`{count}` 个（已保留前 {len(bucket.get('samples', []))} 条样本）")
+    if unmatched_lines:
+        lines.append(f"### {section_num}.3 未归类诊断块")
+        lines.append("")
+        lines.extend(unmatched_lines)
+        lines.append("")
+
+    suggestions = evidence.get("suggestions") or []
+    if suggestions:
+        lines.append(f"### {section_num}.4 证据驱动的修正建议")
+        lines.append("")
+        for item in suggestions:
+            lines.append(f"- {item}")
+        lines.append("")
+
+    log_tail = evidence.get("log_tail") or {}
+    if log_tail:
+        lines.append(f"### {section_num}.5 求解日志尾部快照")
+        lines.append("")
+        for filename, content in log_tail.items():
+            lines.append(f"**{filename}**（最后 {content.count(chr(10)) + 1} 行）")
+            lines.append("")
+            lines.append("```text")
+            lines.append(content)
+            lines.append("```")
+            lines.append("")
+
+    journal_path = evidence.get("journal_path")
+    if journal_path:
+        lines.append(f"> 完整证据流水：`{journal_path}`")
+        lines.append("")
 
 
 def save_markdown_report(

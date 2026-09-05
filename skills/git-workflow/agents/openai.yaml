@@ -1,0 +1,4 @@
+interface:
+  display_name: "Git Workflow"
+  short_description: "Manage safe Git commits, sync, pushes, and PRs"
+  default_prompt: "Use $git-workflow to prepare and publish these repository changes."

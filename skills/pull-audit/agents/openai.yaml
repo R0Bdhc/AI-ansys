@@ -1,0 +1,4 @@
+interface:
+  display_name: "Pull Audit"
+  short_description: "Audit pull requests for security and privacy risks"
+  default_prompt: "Use $pull-audit to review this pull request before merge."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Pre-Push Review"
+  short_description: "Gate pushes with security, privacy, and quality review"
+  default_prompt: "Use $pre-push-review to review the changes before pushing."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fable 5 Code Principle"
+  short_description: "Review skills for concise, safe Fable 5 behavior"
+  default_prompt: "Use $fable5-code-principle to review this skill for quality and safety."

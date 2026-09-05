@@ -1,17 +1,22 @@
 import json
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from ansys_runner import AnsysRunner
-from llm_analyzer import LLMAnalyzer
+from analysis_pipeline import analyze_execution, get_llm_analyzer
+from folder_monitor import FolderMonitorManager
+from job_manager import KIND_REGISTRY, RunJobManager
 from log_parser import detect_errors, load_log_text
 from mechanical_post_processor import MechanicalPostProcessor
 from mechanical_runner import MechanicalRunner
-from report_generator import build_markdown_report, save_markdown_report
+from observability import get_events
 
 
 load_dotenv()
@@ -123,10 +128,67 @@ class MechanicalTemplateRequest(BaseModel):
     run_postprocess: bool = Field(default=False, description="求解完成后是否自动执行后处理可视化。")
 
 
-llm_analyzer = LLMAnalyzer()
+class RunJobRequest(BaseModel):
+    kind: str = Field(
+        description="任务类型：mapdl_input / mapdl_demo / mapdl_template / mechanical_script / mechanical_template / mechanical_contact_batch。"
+    )
+    params: dict = Field(
+        default_factory=dict,
+        description="任务参数，字段与对应同步端点请求体一致（如 mapdl_input 用 input_file_path；mapdl_template 用 template_type + template_params）。",
+    )
+    timeout_seconds: Optional[float] = Field(
+        default=None,
+        gt=0,
+        le=86400,
+        description="可选超时；超时将强杀求解会话，并返回已采集的流式证据与诊断。",
+    )
+
+
+class CreateMonitorRequest(BaseModel):
+    path: str = Field(description="要监听的项目目录绝对路径。")
+    interval: float = Field(default=5.0, gt=0, le=3600, description="轮询间隔（秒），默认 5s。")
+    depth: int = Field(default=3, ge=0, le=10, description="递归扫描深度，0 为仅当前目录层。")
+    auto_analyze: bool = Field(
+        default=False,
+        description="自动分析开关：文件稳定且发现错误时自动调用 LLM 诊断（默认关，防成本失控）。",
+    )
+
+
+class ToggleAutoAnalyzeRequest(BaseModel):
+    enabled: bool = Field(description="是否开启自动分析。")
+
+
+class MonitorAnalyzeRequest(BaseModel):
+    monitor_id: str = Field(description="监听器 ID。")
+    file: str = Field(description="监听内文件的相对路径。")
+
+
+class LlmConfigRequest(BaseModel):
+    api_key: Optional[str] = Field(default=None, description="API Key；留空表示保持现有配置不变。")
+    provider: Optional[str] = Field(default=None, description="提供商：deepseek / kimi / claude / openai / local / custom。")
+    model: Optional[str] = Field(default=None, description="模型名；切换 provider 时留空则使用该 provider 预设。")
+    base_url: Optional[str] = Field(default=None, description="OpenAI 兼容接口地址；切换 provider 时留空则使用预设。")
+
+
+class MonitorPauseRequest(BaseModel):
+    paused: bool = Field(description="true=暂停监听，false=恢复监听。")
+
+
+llm_analyzer = get_llm_analyzer()
 ansys_runner = AnsysRunner()
 mechanical_runner = MechanicalRunner()
 mechanical_post_processor = MechanicalPostProcessor(output_dir="reports")
+job_manager = RunJobManager(
+    ansys_runner=ansys_runner,
+    mechanical_runner=mechanical_runner,
+    llm_analyzer=llm_analyzer,
+)
+monitor_manager = FolderMonitorManager()
+monitor_manager.bind_llm_analyzer(llm_analyzer)
+
+# 仪表盘 overview 缓存：避免每次轮询都触发文件系统扫描与许可证服务查询
+_OVERVIEW_CACHE_TTL = 10.0
+_overview_cache: dict = {"data": None, "at": 0.0}
 
 
 @app.get("/")
@@ -306,34 +368,12 @@ def _attach_mechanical_analysis(result: dict) -> None:
     # Mechanical 目前没有标准日志文件，使用 execution_result 作为分析源
     execution_result = result.get("execution_result", {})
     raw_text = json.dumps(execution_result, ensure_ascii=False, indent=2)
-    detected_errors = detect_errors(raw_text)
-
-    llm_result = llm_analyzer.analyze(
+    result["analysis"] = analyze_execution(
         source_name=result.get("context", "mechanical"),
         log_text=raw_text,
-        detected_errors=detected_errors,
+        engineering_results=mechanical_runner.extract_mechanical_results(script_result=result),
+        llm_analyzer=llm_analyzer,
     )
-
-    engineering_results = mechanical_runner.extract_mechanical_results(
-        script_result=result,
-    )
-
-    markdown_content = build_markdown_report(
-        source_name=result.get("context", "mechanical"),
-        detected_errors=detected_errors,
-        llm_result=llm_result,
-        engineering_results=engineering_results,
-    )
-    report_path = save_markdown_report(markdown_content)
-
-    result["analysis"] = {
-        "success": True,
-        "error_count": len(detected_errors),
-        "detected_errors": detected_errors,
-        "llm_result": llm_result,
-        "report_path": str(report_path),
-        "markdown_preview": markdown_content,
-    }
 
 
 def _regenerate_report_with_images(result: dict, image_paths: list[str]) -> None:
@@ -384,30 +424,12 @@ def run_template_simulation(request: TemplateSimulationRequest) -> dict:
     # 自动串联日志分析链路
     primary_log_path = result.get("primary_log_path")
     if primary_log_path:
-        log_text = load_log_text(primary_log_path)
-        detected_errors = detect_errors(log_text)
-        llm_result = llm_analyzer.analyze(
+        result["analysis"] = analyze_execution(
             source_name=primary_log_path,
-            log_text=log_text,
-            detected_errors=detected_errors,
-        )
-        markdown_content = build_markdown_report(
-            source_name=primary_log_path,
-            detected_errors=detected_errors,
-            llm_result=llm_result,
+            log_text=load_log_text(primary_log_path),
             engineering_results=result.get("engineering_results"),
+            llm_analyzer=llm_analyzer,
         )
-        report_path = save_markdown_report(markdown_content)
-
-        result["analysis"] = {
-            "success": True,
-            "primary_log_path": primary_log_path,
-            "error_count": len(detected_errors),
-            "detected_errors": detected_errors,
-            "llm_result": llm_result,
-            "report_path": str(report_path),
-            "markdown_preview": markdown_content,
-        }
 
     # 如果请求了后处理但模板执行未内嵌（当前架构下后处理需单独调用），给出提示
     if request.run_postprocess and "postprocess_note" not in result:
@@ -457,30 +479,12 @@ def run_mapdl_input(request: MapdlInputRequest) -> dict:
         }
         return result
 
-    log_text = load_log_text(primary_log_path)
-    detected_errors = detect_errors(log_text)
-    llm_result = llm_analyzer.analyze(
+    result["analysis"] = analyze_execution(
         source_name=primary_log_path,
-        log_text=log_text,
-        detected_errors=detected_errors,
-    )
-    markdown_content = build_markdown_report(
-        source_name=primary_log_path,
-        detected_errors=detected_errors,
-        llm_result=llm_result,
+        log_text=load_log_text(primary_log_path),
         engineering_results=result.get("engineering_results"),
+        llm_analyzer=llm_analyzer,
     )
-    report_path = save_markdown_report(markdown_content)
-
-    result["analysis"] = {
-        "success": True,
-        "primary_log_path": primary_log_path,
-        "error_count": len(detected_errors),
-        "detected_errors": detected_errors,
-        "llm_result": llm_result,
-        "report_path": str(report_path),
-        "markdown_preview": markdown_content,
-    }
     return result
 
 
@@ -500,24 +504,268 @@ def analyze_log(request: AnalyzeLogRequest) -> dict:
         source_name = "direct_input.log"
 
     detected_errors = detect_errors(log_text)
-    llm_result = llm_analyzer.analyze(
+    return analyze_execution(
         source_name=source_name,
         log_text=log_text,
         detected_errors=detected_errors,
+        llm_analyzer=llm_analyzer,
     )
-    markdown_content = build_markdown_report(
-        source_name=source_name,
-        detected_errors=detected_errors,
-        llm_result=llm_result,
-    )
-    report_path = save_markdown_report(markdown_content)
+
+
+# ═══════════════════════════════
+# 异步任务 API（流式证据 + 超时/取消）
+# ═══════════════════════════════
+
+@app.post("/runs", status_code=202)
+def submit_run(request: RunJobRequest) -> dict:
+    """提交异步求解任务，立即返回 run_id；轮询 GET /runs/{run_id} 获取状态与证据。"""
+    try:
+        run_id = job_manager.submit(
+            kind=request.kind,
+            params=request.params,
+            timeout_seconds=request.timeout_seconds,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     return {
-        "success": True,
-        "source_name": source_name,
-        "error_count": len(detected_errors),
-        "detected_errors": detected_errors,
-        "llm_result": llm_result,
-        "report_path": str(report_path),
-        "markdown_preview": markdown_content,
+        "run_id": run_id,
+        "kind": request.kind,
+        "status": "pending",
+        "poll_url": f"/runs/{run_id}",
+        "message": "任务已提交。轮询 poll_url 获取状态、结果与流式证据。",
     }
+
+
+@app.get("/runs")
+def list_runs(limit: int = Query(default=50, ge=1, le=200)) -> dict:
+    """列出最近的异步任务（新→旧）。"""
+    runs = job_manager.list_jobs(limit=limit)
+    return {"count": len(runs), "runs": runs}
+
+
+@app.get("/runs/{run_id}")
+def get_run(run_id: str) -> dict:
+    """查询单个任务；运行中附带 live_evidence 实时证据快照。"""
+    job = job_manager.get_job(run_id, live_evidence=True)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"任务不存在：{run_id}")
+    return job
+
+
+@app.post("/runs/{run_id}/cancel")
+def cancel_run(run_id: str) -> dict:
+    """取消任务：运行中立即强杀求解会话，证据照常返回。"""
+    job = job_manager.cancel(run_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"任务不存在：{run_id}")
+    return job
+
+
+# ═══════════════════════════════
+# 项目监听（被动文件夹监视，分级实时）
+# ═══════════════════════════════
+
+@app.post("/monitors", status_code=201)
+def create_monitor(request: CreateMonitorRequest) -> dict:
+    """创建项目目录监听：有界递归跟踪求解日志，稳定触发、静默退避。"""
+    target = Path(request.path)
+    if not target.is_dir():
+        raise HTTPException(status_code=400, detail=f"路径不存在或不是目录：{request.path}")
+
+    monitor = monitor_manager.create(
+        path=request.path,
+        interval=request.interval,
+        depth=request.depth,
+        auto_analyze=request.auto_analyze,
+    )
+    return {"monitor": monitor.view(), "message": "监听已创建并开始运行。"}
+
+
+@app.get("/monitors")
+def list_monitors() -> dict:
+    monitors = monitor_manager.list_views()
+    return {"count": len(monitors), "monitors": monitors}
+
+
+@app.delete("/monitors/{monitor_id}")
+def delete_monitor(monitor_id: str) -> dict:
+    if not monitor_manager.remove(monitor_id):
+        raise HTTPException(status_code=404, detail=f"监听不存在：{monitor_id}")
+    return {"success": True, "message": f"监听已移除：{monitor_id}"}
+
+
+@app.post("/monitors/{monitor_id}/auto-analyze")
+def toggle_monitor_auto_analyze(monitor_id: str, request: ToggleAutoAnalyzeRequest) -> dict:
+    """切换监听器的自动分析开关（开启后文件稳定且发现错误时自动调用 LLM）。"""
+    if not monitor_manager.set_auto_analyze(monitor_id, request.enabled):
+        raise HTTPException(status_code=404, detail=f"监听不存在：{monitor_id}")
+    monitor = monitor_manager.get(monitor_id)
+    return {"success": True, "monitor": monitor.view()}
+
+
+@app.post("/monitors/{monitor_id}/pause")
+def pause_monitor(monitor_id: str, request: MonitorPauseRequest) -> dict:
+    """暂停/恢复监听：暂停期间不扫描不触发，配置保留，可即时恢复。"""
+    if not monitor_manager.set_paused(monitor_id, request.paused):
+        raise HTTPException(status_code=404, detail=f"监听不存在：{monitor_id}")
+    monitor = monitor_manager.get(monitor_id)
+    return {"success": True, "monitor": monitor.view()}
+
+
+@app.post("/llm/config")
+def update_llm_config(request: LlmConfigRequest) -> dict:
+    """运行时更新 LLM 配置（API Key / 提供商 / 模型 / 接口地址）。
+
+    仅内存生效：重启后回到 .env 配置。保存后可通过 /llm/test 验证连通。
+    """
+    try:
+        config = llm_analyzer.update_config(
+            api_key=request.api_key,
+            provider=request.provider,
+            model=request.model,
+            base_url=request.base_url,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "success": True,
+        "config": config,
+        "message": "LLM 配置已更新（仅本次运行生效，重启后回到 .env 配置）。可通过“测试连通”验证。",
+    }
+
+
+@app.post("/monitor-analyze")
+def monitor_analyze(request: MonitorAnalyzeRequest) -> dict:
+    """人工触发：对监听内指定文件执行 LLM 诊断分析。"""
+    return monitor_manager.run_analysis(monitor_id=request.monitor_id, rel_key=request.file, force=True)
+
+
+@app.get("/fs/browse")
+def fs_browse(path: Optional[str] = Query(default=None)) -> dict:
+    """只读目录浏览：列出子目录（含各级 .out/.err 计数）与常见日志/输入文件，供前端选择项目。"""
+    if path:
+        target = Path(path)
+    else:
+        target = Path(__file__).resolve().parent
+
+    if not target.exists():
+        raise HTTPException(status_code=400, detail=f"路径不存在：{target}")
+    if not target.is_dir():
+        target = target.parent
+
+    relevant_suffixes = {".out", ".err", ".log", ".md", ".txt", ".inp", ".dat", ".mac"}
+    directories: list[dict] = []
+    files: list[dict] = []
+    try:
+        children = sorted(target.iterdir(), key=lambda p: p.name.lower())
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"无法读取目录：{exc}")
+
+    for child in children[:500]:
+        try:
+            if child.is_dir():
+                solver_count = sum(1 for _ in child.glob("*.out")) + sum(1 for _ in child.glob("*.err"))
+                directories.append(
+                    {"name": child.name, "path": str(child), "solver_files": solver_count}
+                )
+            elif child.suffix.lower() in relevant_suffixes:
+                files.append(
+                    {"name": child.name, "path": str(child), "size_bytes": child.stat().st_size}
+                )
+        except OSError:
+            continue
+
+    parent = str(target.parent) if target.parent != target else None
+    return {
+        "path": str(target),
+        "parent": parent,
+        "directories": directories,
+        "files": files,
+    }
+
+
+@app.post("/llm/test")
+def llm_test() -> dict:
+    """LLM 连通性强刷测试（忽略健康缓存）。"""
+    return llm_analyzer.get_status(force_refresh=True)
+
+
+# ═══════════════════════════════
+# 运行监控仪表盘
+# ═══════════════════════════════
+
+DASHBOARD_FILE = Path(__file__).resolve().parent / "static" / "dashboard.html"
+
+
+@app.get("/dashboard")
+def dashboard() -> FileResponse:
+    if not DASHBOARD_FILE.exists():
+        raise HTTPException(status_code=404, detail="仪表盘页面缺失：static/dashboard.html")
+    return FileResponse(DASHBOARD_FILE, media_type="text/html")
+
+
+@app.get("/dashboard/api/all")
+def dashboard_all(since_events: int = Query(default=0, ge=0)) -> dict:
+    """仪表盘聚合轮询端点：overview + 增量事件 + 任务列表 + 报告列表。"""
+    jobs = job_manager.list_jobs(limit=50)
+    overview = _get_cached_overview()
+    return {
+        "overview": {**overview, "job_summary": _job_summary(jobs)},
+        "events": get_events(since_id=since_events, limit=100),
+        "jobs": jobs,
+        "monitors": monitor_manager.list_views(),
+        "reports": _list_reports(),
+        "server_time": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def _get_cached_overview() -> dict:
+    """overview 带缓存：环境探测涉及文件系统扫描与许可证子进程，不宜每轮询都执行。"""
+    now = time.monotonic()
+    if _overview_cache["data"] is None or now - _overview_cache["at"] > _OVERVIEW_CACHE_TTL:
+        _overview_cache["data"] = {
+            "llm": llm_analyzer.get_status(),
+            "mapdl": ansys_runner.get_environment_status(),
+            "mechanical": mechanical_runner.get_environment_status(),
+        }
+        _overview_cache["at"] = now
+    return _overview_cache["data"]
+
+
+def _job_summary(jobs: list[dict]) -> dict:
+    counts: dict[str, int] = {}
+    for job in jobs:
+        counts[job["status"]] = counts.get(job["status"], 0) + 1
+    return {"total": len(jobs), "by_status": counts}
+
+
+def _list_reports(limit: int = 50) -> list[dict]:
+    reports_dir = Path("reports")
+    if not reports_dir.exists():
+        return []
+    items: list[dict] = []
+    for path in reports_dir.iterdir():
+        if not path.is_file():
+            continue
+        stat = path.stat()
+        items.append(
+            {
+                "name": path.name,
+                "size_bytes": stat.st_size,
+                "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
+            }
+        )
+    items.sort(key=lambda item: item["modified_at"], reverse=True)
+    return items[:limit]
+
+
+@app.get("/reports/{filename}")
+def get_report_file(filename: str) -> FileResponse:
+    """查看/下载 reports 目录中的报告文件（仅允许纯文件名，防路径穿越）。"""
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="非法文件名。")
+    path = Path("reports") / filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail=f"报告文件不存在：{filename}")
+    return FileResponse(path)

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run Log Analysis"
+  short_description: "Analyze ANSYS solver logs and report likely causes"
+  default_prompt: "Use $run-log-analysis to diagnose this ANSYS solver log."

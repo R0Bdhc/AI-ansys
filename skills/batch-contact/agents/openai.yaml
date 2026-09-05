@@ -1,0 +1,4 @@
+interface:
+  display_name: "Batch Contact"
+  short_description: "Batch-create ANSYS Mechanical contact pairs safely"
+  default_prompt: "Use $batch-contact to preview ANSYS contact pair creation."

@@ -105,6 +105,7 @@ class MechanicalRunner:
         context: str = "custom",
         launch_mechanical: bool = False,
         working_directory: str | None = None,
+        session_holder: dict | None = None,
     ) -> dict:
         """通用 Mechanical Python 脚本执行入口。
 
@@ -113,6 +114,7 @@ class MechanicalRunner:
             context: 脚本上下文标识，用于日志和报告
             launch_mechanical: 是否真实启动 Mechanical。False 时仅返回预览。
             working_directory: Mechanical 工作目录
+            session_holder: 异步任务层传入的句柄容器，launch 后写入 mechanical 会话供超时强杀
         """
         preview = {
             "success": True,
@@ -152,6 +154,7 @@ class MechanicalRunner:
                 script=script,
                 context=context,
                 working_directory=working_directory,
+                session_holder=session_holder,
             )
         except Exception as exc:
             preview["mode"] = "mechanical_execution_failed"
@@ -166,6 +169,7 @@ class MechanicalRunner:
         script: str,
         context: str,
         working_directory: str | None,
+        session_holder: dict | None = None,
     ) -> dict:
         """在 Mechanical 中执行脚本，并收集结果。"""
         self._prepare_pymechanical_runtime()
@@ -180,6 +184,12 @@ class MechanicalRunner:
             batch=True,
             cleanup_on_exit=True,
         )
+        if session_holder is not None:
+            session_holder["mechanical"] = mechanical
+            # 尽力探测实际工作目录：Mechanical 的求解输出可能不落在调用方 working_directory
+            detected_dir = self._detect_working_dir(mechanical)
+            if detected_dir:
+                session_holder["detected_working_dir"] = detected_dir
 
         try:
             result_text = mechanical.run_python_script(script)
@@ -190,6 +200,7 @@ class MechanicalRunner:
                 "mode": "mechanical_script_executed",
                 "message": f"已在 Mechanical 中执行脚本（{context}）。",
                 "working_directory": str(resolved_workdir.resolve()),
+                "detected_working_dir": session_holder.get("detected_working_dir") if session_holder else self._detect_working_dir(mechanical),
                 "used_mechanical_exec": str(mechanical_exec),
                 "execution_result": parsed_result,
                 "script_preview": script[:1000] + ("..." if len(script) > 1000 else ""),
@@ -479,6 +490,7 @@ wb_script_result = json.dumps({{
         contact_name_prefix: str = "AUTO_CONTACT_",
         launch_mechanical: bool = False,
         working_directory: str | None = None,
+        session_holder: dict | None = None,
     ) -> dict:
         """执行基于 Named Selection 的批量接触创建。"""
         try:
@@ -524,6 +536,7 @@ wb_script_result = json.dumps({{
                 contact_type=normalized_contact_type,
                 contact_name_prefix=contact_name_prefix,
                 working_directory=working_directory,
+                session_holder=session_holder,
             )
         except Exception as exc:
             return {
@@ -543,6 +556,7 @@ wb_script_result = json.dumps({{
         contact_type: str,
         contact_name_prefix: str,
         working_directory: str | None,
+        session_holder: dict | None = None,
     ) -> dict:
         """在 242+ Mechanical 中执行批量接触脚本。"""
         self._prepare_pymechanical_runtime()
@@ -557,6 +571,11 @@ wb_script_result = json.dumps({{
             batch=True,
             cleanup_on_exit=True,
         )
+        if session_holder is not None:
+            session_holder["mechanical"] = mechanical
+            detected_dir = self._detect_working_dir(mechanical)
+            if detected_dir:
+                session_holder["detected_working_dir"] = detected_dir
 
         try:
             script = self._build_named_selection_contact_script(
@@ -581,6 +600,22 @@ wb_script_result = json.dumps({{
             }
         finally:
             mechanical.exit()
+
+    @staticmethod
+    def _detect_working_dir(mechanical) -> str | None:
+        """尽力探测 Mechanical 会话的实际工作目录。
+
+        不同启动模式暴露的属性名不同，逐个尝试；全部失败返回 None，
+        调用方应回退监视调用方 working_directory 并注明限制。
+        """
+        for attr in ("working_directory", "working_dir", "current_working_directory"):
+            try:
+                value = getattr(mechanical, attr, None)
+            except Exception:
+                value = None
+            if isinstance(value, (str, Path)) and str(value).strip():
+                return str(value)
+        return None
 
     def _build_named_selection_contact_script(
         self,

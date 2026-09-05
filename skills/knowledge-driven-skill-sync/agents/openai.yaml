@@ -1,0 +1,4 @@
+interface:
+  display_name: "Knowledge-Driven Skill Sync"
+  short_description: "Sync skills, projects, Git pushes, and Obsidian"
+  default_prompt: "Use $knowledge-driven-skill-sync to synchronize project skills with the central collection and Obsidian."

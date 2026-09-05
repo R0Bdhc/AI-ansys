@@ -5,19 +5,24 @@
 ## 架构概览
 
 ```
-main.py          FastAPI 入口，13+ 个 REST 端点，组装层
-├─ log_parser.py      日志解析 + 正则错误检测（4 类关键词）
-├─ llm_analyzer.py    DeepSeek LLM 分析 + 本地规则回退
-├─ report_generator.py Markdown 报告生成（支持嵌入可视化图片）
+main.py          FastAPI 入口，26 个 REST 端点，组装层
+├─ log_parser.py      日志解析 + 错误/警告正则模式库 + 诊断块解析
+├─ analysis_pipeline.py  统一诊断链路（检测→证据合并→LLM→报告），LLM 单例
+├─ llm_analyzer.py    多提供商 LLM 分析 + 本地规则回退 + 观测事件记录
+├─ report_generator.py Markdown 报告生成（支持嵌入可视化图片与证据章节）
 ├─ ansys_runner.py    PyMAPDL 封装（.inp/.dat/.mac + 模板仿真 + 后处理）
 ├─ mechanical_runner.py PyMechanical 242+ 批量接触
 ├─ simulation_templates.py  预定义仿真模板（悬臂梁 / 带孔板 / 粘弹性盘）
-└─ post_processor.py  PyVista 离屏云图 + matplotlib 应力曲线 + stdio 保护
+├─ post_processor.py  PyVista 离屏云图 + matplotlib 应力曲线 + stdio 保护
+├─ solve_watcher.py   流式证据监视器（跨进程文件跟随 + 块解析 + 去重计数）
+├─ folder_monitor.py  被动项目监听（有界递归 + 稳定触发 + 静默退避）
+├─ job_manager.py     异步任务管理（监督者线程、超时强杀、取消、状态持久化）
+└─ observability.py   运行事件环形缓冲 + JSONL 落盘（仪表盘数据源）
 ```
 
 核心链路：`日志 → 错误检测 → LLM分析 → Markdown报告`
 
-扩展链路：`模板参数 → APDL生成 → MAPDL求解 → 后处理可视化 → Markdown嵌入`
+扩展链路：`模板参数 → APDL生成 → MAPDL求解 → 流式证据采集 + 后处理可视化 → Markdown嵌入`
 
 ## 常用命令
 
@@ -46,18 +51,44 @@ curl -X POST http://127.0.0.1:8000/analyze-log \
 - **日志文件优先级**：`.out > .log > .err`，过滤隐藏文件和临时文件
 - **Windows 路径**：默认 ANSYS 安装路径在 `D:\ANSYS Inc\v241\`
 
+## 证据协议（solve_watcher / job_manager）
+
+- **证据宿主解耦**：证据由跨进程文件跟随的 watcher + JSONL 落盘（`runtime_data/evidence/{run_id}.jsonl`）持有，与求解器返回值无关——超时/被杀场景证据照常返回
+- **事件流 + 尾部快照并存**：`error_events/warning_events`（为什么死）与 `log_tail`（死在哪）同时进入证据包与报告
+- **块级捕获 + 签名去重**：`*** WARNING/ERROR ***` 块头行首可能有缩进、换行为 `\r\n`（解析层已归一化）；同签名跨 substep 重复只计数，未归类块保留前 3 条样本
+- **失败也出分析**：job 成功与失败/超时都跑 `analysis_pipeline`，失败场景用证据 + 日志尾部驱动 LLM 诊断
+- **模式库驱动建议**：`ERROR_PATTERNS`/`WARNING_PATTERNS` 每条可带 `suggestion` 字段，命中即随证据返回给 LLM（自修正协议）
+- **观测事件**：`llm_analyzer.analyze` 的包装方法统一记录 prompt/响应预览到 `observability`；仪表盘 `/dashboard/api/all` 增量拉取
+- **分级实时**：活动 job 用 1s watcher；被动项目监听（`folder_monitor`）默认 5s + 静默退避（10 分钟无变化间隔翻倍至 60s 上限）+ 稳定触发（文件 10s 无增长或出现 ROUTINE COMPLETED 才标记可分析）——读取便宜、LLM 调用才贵，不追求高频率裸轮询
+- **监听 LLM 触发**：人工优先（面板按钮 → `/monitor-analyze`），`auto_analyze` 开关默认关；稳定触发且发现错误才自动分析
+- **运行时 LLM 配置**：`LLMAnalyzer.update_config()` 仅改内存与进程环境变量，不写 `.env`；Key 不回显，留空表示保持不变，重启后回到 `.env` 配置
+- **监听暂停**：`FolderMonitor.set_paused` 只置标志（线程存活、不扫描不触发），暂停状态随 `monitors.json` 持久化
+
+## 异步任务 API
+
+- `POST /runs`（kind: mapdl_input/mapdl_demo/mapdl_template/mechanical_script/mechanical_template/mechanical_contact_batch）→ 202 返回 run_id
+- `GET /runs/{run_id}` 全量详情（运行中含 `live_evidence` 实时快照）；`GET /runs` 轻量列表；`POST /runs/{run_id}/cancel` 取消
+- 执行模型：ThreadPoolExecutor 监督者 + 嵌套求解 daemon 线程；超时经 `session_holder` 强杀会话；终态只落一次（`_try_finish` 防竞争）
+- 任务状态持久化 `runtime_data/jobs/{run_id}.json`；并发上限 `CAE_JOB_MAX_WORKERS`（默认 2）
+- 同步端点与 MCP 行为不变（session_holder 默认 None）
+
 ## 模块职责边界
 
 | 模块 | 职责 | 禁止 |
 |------|------|------|
 | `main.py` | 路由、请求校验、模块串联 | 不写业务逻辑 |
-| `log_parser.py` | 正则匹配 + 日志截取 | 不调用外部服务 |
-| `llm_analyzer.py` | LLM 调用 + 回退规则 | 不读写文件 |
+| `log_parser.py` | 正则匹配 + 日志截取 + 诊断块解析 | 不调用外部服务 |
+| `llm_analyzer.py` | LLM 调用 + 回退规则 + 观测记录 | 不读写文件 |
+| `analysis_pipeline.py` | 统一分析链路编排 + LLM 单例 | 不管理求解器 |
 | `report_generator.py` | Markdown 拼装 + 落盘 | 不分析、不调用 API |
 | `ansys_runner.py` | MAPDL 生命周期管理 + 模板仿真 + 后处理调度 + 环境诊断 | 不分析日志 |
-| `mechanical_runner.py` | Mechanical 批量接触 | 不处理 MAPDL |
+| `mechanical_runner.py` | Mechanical 批量接触 + 会话句柄暴露 | 不处理 MAPDL |
 | `simulation_templates.py` | 预定义模板 APDL 命令生成 | 不调用求解器 |
 | `post_processor.py` | PyVista 云图 + matplotlib 曲线 + stdio 保护 | 不管理 MAPDL 生命周期 |
+| `solve_watcher.py` | 只读跟随日志文件 + 模式分类 + 证据落盘 | 不管理求解器生命周期 |
+| `folder_monitor.py` | 项目目录监听 + 错误事件 + 稳定触发回调 | 不直接调用 LLM（经 Manager 回调） |
+| `job_manager.py` | 任务调度 + 超时/取消 + 证据收尾 | 不实现求解逻辑 |
+| `observability.py` | 事件缓冲 + 落盘 + 语义化记录函数 | 不做业务判断 |
 
 ## 扩展错误检测
 

@@ -1,0 +1,1040 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cae-agent 运行监控</title>
+<style>
+  :root {
+    --bg: #0f1419;
+    --panel: #1a2129;
+    --panel-border: #2a3441;
+    --text: #d8dee6;
+    --text-dim: #8a97a8;
+    --accent: #4fc3f7;
+    --green: #66bb6a;
+    --red: #ef5350;
+    --orange: #ffa726;
+    --yellow: #ffee58;
+    --gray: #78909c;
+    --mono: "Cascadia Mono", Consolas, "Courier New", monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Microsoft YaHei", "Segoe UI", sans-serif; font-size: 14px;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 20px; border-bottom: 1px solid var(--panel-border);
+    background: var(--panel); position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { font-size: 18px; margin: 0; }
+  .controls { display: flex; align-items: center; gap: 10px; color: var(--text-dim); }
+  .controls select, .controls button {
+    background: #232d3a; color: var(--text); border: 1px solid var(--panel-border);
+    border-radius: 4px; padding: 4px 10px; cursor: pointer;
+  }
+  .controls button:hover { border-color: var(--accent); }
+  #conn-status { font-size: 12px; }
+  #conn-status.ok { color: var(--green); }
+  #conn-status.fail { color: var(--red); }
+
+  #cards {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 12px; padding: 14px 20px;
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 8px; padding: 12px 14px;
+  }
+  .card h3 { margin: 0 0 8px; font-size: 13px; color: var(--text-dim); font-weight: normal; }
+  .card .main { font-size: 15px; margin-bottom: 4px; }
+  .card .sub { font-size: 12px; color: var(--text-dim); font-family: var(--mono); word-break: break-all; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+  .dot.green { background: var(--green); } .dot.red { background: var(--red); }
+  .dot.yellow { background: var(--yellow); } .dot.gray { background: var(--gray); }
+
+  main { display: grid; grid-template-columns: minmax(380px, 7fr) minmax(340px, 5fr); gap: 14px; padding: 0 20px 14px; }
+  @media (max-width: 980px) { main { grid-template-columns: 1fr; } }
+  .col { display: flex; flex-direction: column; gap: 14px; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 8px; padding: 12px 14px; min-width: 0;
+  }
+  .panel h2 { font-size: 15px; margin: 0 0 10px; padding-bottom: 8px; border-bottom: 1px solid var(--panel-border); }
+  .panel .empty { color: var(--text-dim); font-size: 13px; padding: 12px 0; text-align: center; }
+
+  /* 任务列表 */
+  .job {
+    border: 1px solid var(--panel-border); border-radius: 6px;
+    margin-bottom: 8px; overflow: hidden;
+  }
+  .job-head {
+    display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+    cursor: pointer; flex-wrap: wrap;
+  }
+  .job-head:hover { background: #212b37; }
+  .job-head .run-id { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+  .job-head .kind { font-size: 12px; color: var(--text-dim); }
+  .job-head .meta { margin-left: auto; font-size: 12px; color: var(--text-dim); font-family: var(--mono); }
+  .badge {
+    font-size: 11px; padding: 2px 8px; border-radius: 10px; white-space: nowrap;
+  }
+  .badge.completed { background: #1b3a20; color: var(--green); }
+  .badge.failed { background: #3a1b1b; color: var(--red); }
+  .badge.timeout { background: #3a2a1b; color: var(--orange); }
+  .badge.cancelled { background: #26313b; color: var(--gray); }
+  .badge.running { background: #16303f; color: var(--accent); animation: pulse 1.5s infinite; }
+  .badge.pending { background: #38351a; color: var(--yellow); }
+  @keyframes pulse { 50% { opacity: 0.55; } }
+  .badge.mode-llm { background: #16303f; color: var(--accent); }
+  .badge.mode-rule { background: #26313b; color: var(--gray); }
+  .badge.mode-fallback { background: #3a2a1b; color: var(--orange); }
+  .job-detail { border-top: 1px solid var(--panel-border); padding: 10px 12px; font-size: 13px; }
+  .job-detail pre {
+    background: #12181f; border: 1px solid var(--panel-border); border-radius: 4px;
+    padding: 8px; font-size: 12px; overflow-x: auto; max-height: 300px; overflow-y: auto;
+    font-family: var(--mono); white-space: pre-wrap; word-break: break-all; margin: 6px 0;
+  }
+  .job-detail table { border-collapse: collapse; width: 100%; font-size: 12px; margin: 6px 0; }
+  .job-detail th, .job-detail td { border: 1px solid var(--panel-border); padding: 4px 8px; text-align: left; }
+  .job-detail th { color: var(--text-dim); font-weight: normal; }
+  .detail-label { color: var(--text-dim); font-size: 12px; margin-top: 8px; }
+  .cancel-btn {
+    background: #3a1b1b; color: var(--red); border: 1px solid #5a2a2a;
+    border-radius: 4px; padding: 4px 12px; cursor: pointer; margin-top: 8px;
+  }
+  .cancel-btn:hover { background: #4a2222; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
+  .chip { background: #232d3a; border-radius: 10px; padding: 2px 9px; font-size: 11px; font-family: var(--mono); }
+  .chip.err { background: #3a1b1b; color: var(--red); }
+  .chip.warn { background: #3a2f1b; color: var(--orange); }
+
+  /* 事件流 */
+  .event {
+    border: 1px solid var(--panel-border); border-radius: 6px;
+    padding: 8px 10px; margin-bottom: 8px; cursor: pointer;
+  }
+  .event:hover { border-color: #3a4a5c; }
+  .event .row1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .event .ts { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+  .event .msg { font-size: 13px; margin-top: 4px; word-break: break-all; }
+  .event .latency { font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
+  .event .expand { border-top: 1px dashed var(--panel-border); margin-top: 8px; padding-top: 8px; }
+  .event .expand pre {
+    background: #12181f; border-radius: 4px; padding: 8px; font-size: 11.5px;
+    max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-all;
+    font-family: var(--mono); margin: 4px 0;
+  }
+  .expand-label { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* 报告表 */
+  #reports-panel { margin: 0 20px 20px; }
+  #reports-panel table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  #reports-panel th, #reports-panel td { border-bottom: 1px solid var(--panel-border); padding: 6px 8px; text-align: left; }
+  #reports-panel th { color: var(--text-dim); font-weight: normal; }
+  #reports-panel td.mono { font-family: var(--mono); }
+
+  /* 卡片操作按钮 */
+  .card-actions { display: flex; gap: 8px; margin-top: 10px; }
+  .btn {
+    background: #232d3a; color: var(--text); border: 1px solid var(--panel-border);
+    border-radius: 4px; padding: 4px 12px; cursor: pointer; font-size: 12px;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: #16303f; border-color: #2a5a75; color: var(--accent); }
+  .btn.danger { background: #3a1b1b; color: var(--red); border-color: #5a2a2a; }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+
+  /* 项目监听面板 */
+  .monitor-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .monitor-controls input[type="text"] {
+    flex: 1; min-width: 260px; background: #12181f; color: var(--text);
+    border: 1px solid var(--panel-border); border-radius: 4px; padding: 6px 10px;
+    font-family: var(--mono); font-size: 12px;
+  }
+  .monitor-card {
+    border: 1px solid var(--panel-border); border-radius: 6px;
+    padding: 10px 12px; margin-bottom: 8px; font-size: 13px;
+  }
+  .monitor-card .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .monitor-card .path { font-family: var(--mono); font-size: 12px; color: var(--accent); word-break: break-all; }
+  .monitor-card .stats { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+  .monitor-card .actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .switch { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-dim); cursor: pointer; }
+  .switch input { accent-color: var(--accent); }
+
+  /* 对话框 */
+  #dialog-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #dialog-overlay.hidden { display: none; }
+  #dialog-box {
+    background: var(--panel); border: 1px solid var(--panel-border); border-radius: 8px;
+    width: min(720px, 92vw); max-height: 84vh; display: flex; flex-direction: column;
+    padding: 14px 16px;
+  }
+  #dialog-title { font-size: 15px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+  #dialog-close { cursor: pointer; color: var(--text-dim); background: none; border: none; font-size: 16px; }
+  #dialog-body { overflow-y: auto; min-height: 60px; }
+  #dialog-footer { margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end; }
+  .dir-row {
+    display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+    border-radius: 4px; cursor: pointer; font-size: 13px;
+  }
+  .dir-row:hover { background: #212b37; }
+  .dir-row .name { font-family: var(--mono); font-size: 12.5px; }
+  .dir-row .count { margin-left: auto; font-size: 11px; color: var(--text-dim); }
+  .dialog-path {
+    width: 100%; background: #12181f; color: var(--text); border: 1px solid var(--panel-border);
+    border-radius: 4px; padding: 6px 10px; font-family: var(--mono); font-size: 12px; margin-bottom: 8px;
+  }
+  .dialog-result { margin-top: 10px; border-top: 1px dashed var(--panel-border); padding-top: 10px; font-size: 13px; }
+  .dialog-result pre {
+    background: #12181f; border-radius: 4px; padding: 8px; font-size: 11.5px;
+    max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-all; font-family: var(--mono);
+  }
+  .spinner { color: var(--text-dim); font-size: 12px; padding: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚡ cae-agent 运行监控</h1>
+  <div class="controls">
+    <span id="conn-status">连接中…</span>
+    <span id="server-time"></span>
+    <select id="interval-select">
+      <option value="2000">2s</option>
+      <option value="5000" selected>5s</option>
+      <option value="10000">10s</option>
+    </select>
+    <button id="pause-btn">暂停</button>
+  </div>
+</header>
+
+<section id="cards">
+  <div class="card" id="card-llm">
+    <h3>LLM 服务</h3><div class="main">—</div><div class="sub">—</div>
+    <div class="sub" id="llm-test-result"></div>
+    <div class="card-actions">
+      <button class="btn" id="llm-test-btn">测试连通</button>
+      <button class="btn" id="llm-config-btn">配置 Key</button>
+      <button class="btn" id="llm-analyze-btn">分析日志</button>
+    </div>
+  </div>
+  <div class="card" id="card-mapdl"><h3>MAPDL 环境</h3><div class="main">—</div><div class="sub">—</div></div>
+  <div class="card" id="card-mech"><h3>Mechanical 环境</h3><div class="main">—</div><div class="sub">—</div></div>
+  <div class="card" id="card-jobs"><h3>任务统计</h3><div class="main">—</div><div class="sub">—</div></div>
+</section>
+
+<section class="panel" id="monitors-panel">
+  <h2>项目监听</h2>
+  <div class="monitor-controls">
+    <input type="text" id="monitor-path" placeholder="输入要监听的项目目录绝对路径，或点“浏览”选择…">
+    <button class="btn" id="browse-btn">浏览</button>
+    <label class="switch"><input type="checkbox" id="monitor-auto">发现错误自动 LLM 分析</label>
+    <button class="btn primary" id="add-monitor-btn">添加监听</button>
+  </div>
+  <div class="stats" id="monitor-hint"></div>
+  <div id="monitors-list"><div class="empty">暂无监听。选择项目目录后点击“添加监听”。</div></div>
+</section>
+
+<main>
+  <section class="panel" id="jobs-panel">
+    <h2>求解任务</h2>
+    <div id="jobs-list"><div class="empty">暂无任务。通过 POST /runs 提交。</div></div>
+  </section>
+  <div class="col">
+    <section class="panel">
+      <h2>LLM 接口调用流</h2>
+      <div id="llm-list"><div class="empty">暂无 LLM 调用。</div></div>
+    </section>
+    <section class="panel">
+      <h2>日志读取与错误检测</h2>
+      <div id="log-list"><div class="empty">暂无日志诊断。</div></div>
+    </section>
+  </div>
+</main>
+
+<section class="panel" id="reports-panel">
+  <h2>报告列表（reports/）</h2>
+  <table>
+    <thead><tr><th>文件</th><th>大小</th><th>修改时间</th></tr></thead>
+    <tbody id="reports-body"><tr><td colspan="3" class="empty">暂无报告。</td></tr></tbody>
+  </table>
+</section>
+
+<div id="dialog-overlay" class="hidden">
+  <div id="dialog-box">
+    <div id="dialog-title"><span id="dialog-title-text"></span><button id="dialog-close">✕</button></div>
+    <div id="dialog-body"></div>
+    <div id="dialog-footer"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+// ── 状态 ──
+const state = {
+  lastEventId: 0,
+  paused: false,
+  timer: null,
+  events: [],            // 累积的事件（llm_call / log_analysis）
+  expandedJobs: new Map(),  // run_id -> detail data
+  expandedEvents: new Set(), // event id
+};
+
+const $ = (id) => document.getElementById(id);
+
+// 安全 DOM 构造：所有动态内容一律 textContent，杜绝日志内容注入
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined && text !== null) node.textContent = String(text);
+  return node;
+}
+
+function fmtTime(iso) {
+  if (!iso) return "";
+  const idx = iso.indexOf("T");
+  return idx >= 0 ? iso.slice(idx + 1) : iso;
+}
+
+function fmtBytes(n) {
+  if (n === undefined || n === null) return "—";
+  if (n < 1024) return n + " B";
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+  return (n / 1024 / 1024).toFixed(2) + " MB";
+}
+
+const STATUS_TEXT = { completed: "完成", failed: "失败", timeout: "超时", cancelled: "已取消", running: "运行中", pending: "排队中" };
+const KIND_TEXT = {
+  mapdl_input: "MAPDL 输入文件", mapdl_demo: "MAPDL 示例", mapdl_template: "MAPDL 模板",
+  mechanical_script: "Mechanical 脚本", mechanical_template: "Mechanical 模板", mechanical_contact_batch: "批量接触",
+};
+const MODE_TEXT = { llm: "LLM", rule_based: "规则", fallback_after_llm_error: "回退" };
+const MODE_BADGE = { llm: "mode-llm", rule_based: "mode-rule", fallback_after_llm_error: "mode-fallback" };
+
+// ── 轮询 ──
+async function poll() {
+  if (state.paused) return;
+  try {
+    const res = await fetch("/dashboard/api/all?since_events=" + state.lastEventId);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    mergeEvents(data.events);
+    renderCards(data.overview);
+    renderJobs(data.jobs);
+    renderMonitors(data.monitors);
+    renderStreams();
+    renderReports(data.reports);
+    $("server-time").textContent = data.server_time || "";
+    setConn(true);
+  } catch (err) {
+    setConn(false, err.message);
+  }
+}
+
+function setConn(ok, msg) {
+  const node = $("conn-status");
+  node.className = ok ? "ok" : "fail";
+  node.textContent = ok ? "● 已连接" : "● 连接失败" + (msg ? "：" + msg : "");
+}
+
+function mergeEvents(eventsPayload) {
+  const incoming = (eventsPayload && eventsPayload.events) || [];
+  if (eventsPayload && eventsPayload.last_id) state.lastEventId = Math.max(state.lastEventId, eventsPayload.last_id);
+  const seen = new Set(state.events.map((e) => e.id));
+  for (const item of incoming) {
+    if (!seen.has(item.id)) state.events.push(item);
+  }
+  state.events.sort((a, b) => b.id - a.id);
+  if (state.events.length > 300) state.events.length = 300;
+}
+
+// ── 状态卡片 ──
+function renderCards(overview) {
+  if (!overview) return;
+  state.llmStatus = overview.llm || state.llmStatus;
+  const llm = overview.llm || {};
+  const llmMain = $("card-llm").querySelector(".main");
+  const llmSub = $("card-llm").querySelector(".sub");
+  llmMain.innerHTML = "";
+  const llmDot = el("span", "dot " + (llm.reachable ? "green" : llm.configured ? "red" : "gray"));
+  llmMain.appendChild(llmDot);
+  llmMain.appendChild(el("span", null, llm.configured ? (llm.provider || "?") + " · " + (llm.model || "?") : "未配置 API Key"));
+  llmSub.textContent = llm.message || (llm.reachable ? "连通正常" : "未连通");
+
+  const mapdl = overview.mapdl || {};
+  const mapdlOk = !!mapdl.detected_mapdl_exec_exists;
+  const mapdlMain = $("card-mapdl").querySelector(".main");
+  mapdlMain.innerHTML = "";
+  mapdlMain.appendChild(el("span", "dot " + (mapdlOk ? "green" : mapdl.pymapdl_importable ? "yellow" : "red")));
+  mapdlMain.appendChild(el("span", null, mapdlOk ? "MAPDL 已就绪" : mapdl.pymapdl_importable ? "未找到可执行文件" : "PyMAPDL 不可用"));
+  $("card-mapdl").querySelector(".sub").textContent =
+    (mapdl.detected_mapdl_exec || "未检测") +
+    "｜许可证服务: " + ((mapdl.license_service || {}).running ? "运行中" : "未运行") +
+    "｜后处理: " + (((mapdl.post_processing || {}).ready) ? "就绪" : "缺失");
+
+  const mech = overview.mechanical || {};
+  const mechExec = mech.detected_mechanical_exec || mech.detected_mechanical_executable;
+  const mechMain = $("card-mech").querySelector(".main");
+  mechMain.innerHTML = "";
+  mechMain.appendChild(el("span", "dot " + (mechExec ? "green" : mech.pymechanical_importable ? "yellow" : "gray")));
+  mechMain.appendChild(el("span", null, mechExec ? "Mechanical " + (mech.detected_version || "") : "未检测到 242+"));
+  $("card-mech").querySelector(".sub").textContent = mech.message || "";
+
+  const summary = (overview.job_summary || {});
+  const by = summary.by_status || {};
+  const jobsMain = $("card-jobs").querySelector(".main");
+  jobsMain.innerHTML = "";
+  jobsMain.appendChild(el("span", "badge running", "运行 " + (by.running || 0)));
+  jobsMain.appendChild(document.createTextNode("  "));
+  jobsMain.appendChild(el("span", "badge pending", "排队 " + (by.pending || 0)));
+  jobsMain.appendChild(document.createTextNode("  "));
+  jobsMain.appendChild(el("span", "badge completed", "完成 " + (by.completed || 0)));
+  jobsMain.appendChild(document.createTextNode("  "));
+  jobsMain.appendChild(el("span", "badge failed", "失败 " + ((by.failed || 0) + (by.timeout || 0))));
+  $("card-jobs").querySelector(".sub").textContent = "共 " + (summary.total || 0) + " 个任务";
+}
+
+// ── 任务面板 ──
+function renderJobs(jobs) {
+  const container = $("jobs-list");
+  container.innerHTML = "";
+  if (!jobs || !jobs.length) {
+    container.appendChild(el("div", "empty", "暂无任务。通过 POST /runs 提交。"));
+    return;
+  }
+  for (const job of jobs) {
+    container.appendChild(buildJobCard(job));
+  }
+}
+
+function buildJobCard(job) {
+  const card = el("div", "job");
+  const head = el("div", "job-head");
+  head.appendChild(el("span", "badge " + job.status, STATUS_TEXT[job.status] || job.status));
+  head.appendChild(el("span", "run-id", job.run_id));
+  head.appendChild(el("span", "kind", KIND_TEXT[job.kind] || job.kind));
+  const bits = [];
+  if (job.duration_s !== null && job.duration_s !== undefined) bits.push(job.duration_s + "s");
+  if (job.evidence_summary && job.evidence_summary.error_events) bits.push("错误事件 " + job.evidence_summary.error_events);
+  const meta = el("span", "meta", bits.join(" ｜ "));
+  head.appendChild(meta);
+  card.appendChild(head);
+
+  const expanded = state.expandedJobs.has(job.run_id);
+  head.addEventListener("click", () => toggleJob(job.run_id, card));
+  if (expanded) {
+    const detailBox = el("div", "job-detail");
+    detailBox.textContent = "加载详情…";
+    card.appendChild(detailBox);
+    loadJobDetail(job.run_id, detailBox, job);
+  }
+  return card;
+}
+
+async function toggleJob(runId, card) {
+  if (state.expandedJobs.has(runId)) {
+    state.expandedJobs.delete(runId);
+    const detail = card.querySelector(".job-detail");
+    if (detail) detail.remove();
+    return;
+  }
+  state.expandedJobs.set(runId, true);
+  const detailBox = el("div", "job-detail", "加载详情…");
+  card.appendChild(detailBox);
+  await loadJobDetailInto(runId, detailBox);
+}
+
+async function loadJobDetail(runId, detailBox, listJob) {
+  // 展开状态下的每轮刷新：运行中任务重新拉详情（含 live_evidence）
+  await loadJobDetailInto(runId, detailBox);
+}
+
+async function loadJobDetailInto(runId, detailBox) {
+  try {
+    const res = await fetch("/runs/" + runId);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const job = await res.json();
+    detailBox.innerHTML = "";
+    renderJobDetail(detailBox, job);
+  } catch (err) {
+    detailBox.textContent = "详情加载失败：" + err.message;
+  }
+}
+
+function kvLine(label, value) {
+  const line = el("div", null);
+  line.appendChild(el("span", "detail-label", label + "："));
+  line.appendChild(el("span", null, value === undefined || value === null || value === "" ? "—" : String(value)));
+  return line;
+}
+
+function renderJobDetail(box, job) {
+  box.appendChild(kvLine("类型", (KIND_TEXT[job.kind] || job.kind) + "（" + job.kind + "）"));
+  box.appendChild(kvLine("状态", (STATUS_TEXT[job.status] || job.status) + (job.message ? " ｜ " + job.message : "")));
+  box.appendChild(kvLine("提交 / 开始 / 结束", [job.submitted_at, job.started_at, job.finished_at].map((t) => t ? fmtTime(t) : "—").join(" → ")));
+  if (job.timeout_seconds) box.appendChild(kvLine("超时上限", job.timeout_seconds + "s"));
+
+  // 运行中：实时证据快照
+  if (job.live_evidence) {
+    const live = job.live_evidence;
+    box.appendChild(el("div", "detail-label", "实时证据（监视 " + (live.files_watched ? Object.keys(live.files_watched).length : 0) + " 个文件）"));
+    const chips = el("div", "chips");
+    chips.appendChild(el("span", "chip", "已采集 " + fmtBytes(live.total_bytes_seen)));
+    chips.appendChild(el("span", "chip", "错误事件 " + (live.error_event_count || 0)));
+    chips.appendChild(el("span", "chip warn", "警告事件 " + (live.warning_event_count || 0)));
+    if (live.stalled) chips.appendChild(el("span", "chip err", "输出静默中"));
+    box.appendChild(chips);
+    for (const rev of (live.recent_events || []).slice().reverse()) {
+      box.appendChild(el("div", null, "· [" + rev.level + "] " + (rev.title || rev.code) + " ×" + rev.count));
+    }
+  }
+
+  const result = job.result;
+  if (result) {
+    box.appendChild(kvLine("结果模式", result.mode));
+    const ev = result.evidence;
+    if (ev) {
+      box.appendChild(el("div", "detail-label", "错误事件"));
+      if ((ev.error_events || []).length) {
+        const table = el("table");
+        table.appendChild(buildEventTable(["代码", "标题", "次数", "首现", "建议"], ev.error_events, (e) => [e.code, e.title, "×" + e.count, fmtTime(e.first_seen), e.suggestion || ""]));
+        box.appendChild(table);
+      } else {
+        box.appendChild(el("div", null, "无匹配错误事件。"));
+      }
+      if ((ev.warning_events || []).length) {
+        box.appendChild(el("div", "detail-label", "警告事件"));
+        const wtable = el("table");
+        wtable.appendChild(buildEventTable(["代码", "标题", "次数", "首现"], ev.warning_events, (e) => [e.code, e.title, "×" + e.count, fmtTime(e.first_seen)]));
+        box.appendChild(wtable);
+      }
+      const un = ev.unmatched || {};
+      const unCount = ((un.ERROR || {}).count || 0) + ((un.WARNING || {}).count || 0);
+      if (unCount) box.appendChild(kvLine("未归类诊断块", unCount + " 个（样本见报告）"));
+      if (ev.stalled) box.appendChild(el("div", null, "⚠ 求解输出出现静默期"));
+      if (ev.late_static_pass) box.appendChild(el("div", "detail-label", ev.late_static_pass.note || "已对 Mechanical 实际输出目录补扫。"));
+      for (const [fname, tail] of Object.entries(ev.log_tail || {})) {
+        box.appendChild(el("div", "detail-label", fname + " 日志尾部"));
+        box.appendChild(el("pre", null, tail));
+      }
+    }
+    const analysis = result.analysis;
+    if (analysis && analysis.report_path) {
+      const link = el("a", null, "查看诊断报告 →");
+      link.href = "/reports/" + encodeURIComponent(analysis.report_path.split(/[\\/]/).pop());
+      link.target = "_blank";
+      box.appendChild(link);
+    }
+  }
+
+  if ((job.status === "running" || job.status === "pending")) {
+    const btn = el("button", "cancel-btn", "取消任务");
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      btn.disabled = true;
+      await fetch("/runs/" + job.run_id + "/cancel", { method: "POST" });
+      poll();
+    });
+    box.appendChild(btn);
+  }
+}
+
+function buildEventTable(headers, rows, mapFn) {
+  const thead = el("thead");
+  const hrow = el("tr");
+  for (const h of headers) hrow.appendChild(el("th", null, h));
+  thead.appendChild(hrow);
+  const tbody = el("tbody");
+  for (const item of rows) {
+    const tr = el("tr");
+    for (const cell of mapFn(item)) tr.appendChild(el("td", null, cell));
+    tbody.appendChild(tr);
+  }
+  const table = el("table");
+  table.appendChild(thead);
+  table.appendChild(tbody);
+  return table;
+}
+
+// ── 事件流面板 ──
+function renderStreams() {
+  const llmContainer = $("llm-list");
+  const logContainer = $("log-list");
+  llmContainer.innerHTML = "";
+  logContainer.innerHTML = "";
+
+  const llmEvents = state.events.filter((e) => e.kind === "llm_call").slice(0, 25);
+  const logEvents = state.events.filter((e) => e.kind === "log_analysis" || e.kind === "monitor_event").slice(0, 30);
+
+  if (!llmEvents.length) llmContainer.appendChild(el("div", "empty", "暂无 LLM 调用。"));
+  for (const event of llmEvents) llmContainer.appendChild(buildEventCard(event));
+
+  if (!logEvents.length) logContainer.appendChild(el("div", "empty", "暂无日志诊断。"));
+  for (const event of logEvents) logContainer.appendChild(buildEventCard(event));
+}
+
+function buildEventCard(event) {
+  const card = el("div", "event");
+  const row1 = el("div", "row1");
+  row1.appendChild(el("span", "ts", fmtTime(event.ts)));
+  const payload = event.payload || {};
+  if (event.kind === "llm_call") {
+    const mode = payload.mode || "unknown";
+    row1.appendChild(el("span", "badge " + (MODE_BADGE[mode] || "mode-rule"), MODE_TEXT[mode] || mode));
+    if (payload.model) row1.appendChild(el("span", "latency", payload.model));
+    if (payload.latency_ms !== null && payload.latency_ms !== undefined) row1.appendChild(el("span", "latency", payload.latency_ms + "ms"));
+  } else if (event.kind === "log_analysis") {
+    const count = payload.error_count || 0;
+    row1.appendChild(el("span", "badge " + (count ? "failed" : "completed"), count + " 个错误"));
+  } else if (event.kind === "monitor_event") {
+    const lvl = payload.level;
+    if (lvl === "ERROR") row1.appendChild(el("span", "badge failed", "错误"));
+    else if (lvl === "WARNING") row1.appendChild(el("span", "badge timeout", "警告"));
+    else row1.appendChild(el("span", "badge cancelled", "监听"));
+    if (payload.code) row1.appendChild(el("span", "chip err", payload.code));
+    if (payload.count > 1) row1.appendChild(el("span", "latency", "×" + payload.count));
+    if (payload.file) row1.appendChild(el("span", "latency", payload.file));
+  }
+  card.appendChild(row1);
+  card.appendChild(el("div", "msg", event.message));
+
+  const expanded = state.expandedEvents.has(event.id);
+  card.addEventListener("click", () => {
+    if (state.expandedEvents.has(event.id)) state.expandedEvents.delete(event.id);
+    else state.expandedEvents.add(event.id);
+    const exist = card.querySelector(".expand");
+    if (exist) exist.remove();
+    else card.appendChild(buildEventExpand(event));
+  });
+  if (expanded) card.appendChild(buildEventExpand(event));
+  return card;
+}
+
+function buildEventExpand(event) {
+  const box = el("div", "expand");
+  const payload = event.payload || {};
+  if (event.kind === "llm_call") {
+    box.appendChild(el("div", "expand-label", "来源：" + (payload.source_name || "—") + "（检出 " + (payload.detected_error_count || 0) + " 个错误）"));
+    if (payload.prompt_preview) {
+      box.appendChild(el("div", "expand-label", "Prompt 输入："));
+      box.appendChild(el("pre", null, payload.prompt_preview));
+    }
+    if (payload.response_preview) {
+      box.appendChild(el("div", "expand-label", "LLM 响应："));
+      box.appendChild(el("pre", null, payload.response_preview));
+    }
+    if (payload.llm_error) {
+      box.appendChild(el("div", "expand-label", "调用异常："));
+      box.appendChild(el("pre", null, payload.llm_error));
+    }
+  } else if (event.kind === "log_analysis") {
+    box.appendChild(el("div", "expand-label", "来源：" + (payload.source || "—") + "（日志 " + (payload.text_chars || 0) + " 字符）"));
+    const chips = el("div", "chips");
+    for (const code of payload.codes || []) chips.appendChild(el("span", "chip err", code));
+    if (chips.children.length) box.appendChild(chips);
+    if (payload.report_path) {
+      const link = el("a", null, "查看报告 →");
+      link.href = "/reports/" + encodeURIComponent(payload.report_path.split(/[\\/]/).pop());
+      link.target = "_blank";
+      box.appendChild(link);
+    }
+  } else if (event.kind === "monitor_event") {
+    box.appendChild(el("div", "expand-label", "文件：" + (payload.file || "—") + "（监听 " + (payload.monitor_id || "—") + "）"));
+    if (payload.title) box.appendChild(el("div", null, payload.title));
+    if (payload.suggestion) box.appendChild(el("div", null, "建议：" + payload.suggestion));
+    if (payload.report_path) {
+      const link = el("a", null, "查看报告 →");
+      link.href = "/reports/" + encodeURIComponent(String(payload.report_path).split(/[\\/]/).pop());
+      link.target = "_blank";
+      box.appendChild(link);
+    }
+    if (payload.text) box.appendChild(el("pre", null, payload.text));
+  }
+  return box;
+}
+
+// ── 报告列表 ──
+function renderReports(reports) {
+  const body = $("reports-body");
+  body.innerHTML = "";
+  if (!reports || !reports.length) {
+    const tr = el("tr");
+    const td = el("td", "empty", "暂无报告。");
+    td.colSpan = 3;
+    tr.appendChild(td);
+    body.appendChild(tr);
+    return;
+  }
+  for (const item of reports) {
+    const tr = el("tr");
+    const nameTd = el("td", "mono");
+    const link = el("a", null, item.name);
+    link.href = "/reports/" + encodeURIComponent(item.name);
+    link.target = "_blank";
+    nameTd.appendChild(link);
+    tr.appendChild(nameTd);
+    tr.appendChild(el("td", "mono", fmtBytes(item.size_bytes)));
+    tr.appendChild(el("td", "mono", item.modified_at || ""));
+    body.appendChild(tr);
+  }
+}
+
+// ── 控制区 ──
+function restartTimer() {
+  if (state.timer) clearInterval(state.timer);
+  const ms = parseInt($("interval-select").value, 10);
+  state.timer = setInterval(poll, ms);
+}
+
+$("pause-btn").addEventListener("click", () => {
+  state.paused = !state.paused;
+  $("pause-btn").textContent = state.paused ? "恢复" : "暂停";
+  if (!state.paused) poll();
+});
+$("interval-select").addEventListener("change", restartTimer);
+
+// ── 项目监听面板 ──
+function renderMonitors(monitors) {
+  if (!monitors) return;
+  const container = $("monitors-list");
+  container.innerHTML = "";
+  if (!monitors.length) {
+    container.appendChild(el("div", "empty", "暂无监听。选择项目目录后点击“添加监听”。"));
+    return;
+  }
+  for (const m of monitors) container.appendChild(buildMonitorCard(m));
+}
+
+function buildMonitorCard(m) {
+  const card = el("div", "monitor-card");
+  const row = el("div", "row");
+  const badgeCls = m.status === "paused" ? "cancelled" : m.status === "running" ? "running" : "cancelled";
+  const badgeText = m.status === "paused" ? "已暂停" : m.status === "running" ? (m.backing_off ? "静默退避中" : "监听中") : "已停止";
+  row.appendChild(el("span", "badge " + badgeCls, badgeText));
+  row.appendChild(el("span", "path", m.path));
+
+  const actions = el("div", "actions");
+
+  const pauseBtn = el("button", "btn", m.paused ? "恢复" : "暂停");
+  pauseBtn.addEventListener("click", async () => {
+    pauseBtn.disabled = true;
+    await fetch("/monitors/" + m.monitor_id + "/pause", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paused: !m.paused }),
+    });
+    poll();
+  });
+  actions.appendChild(pauseBtn);
+
+  const autoLabel = el("label", "switch");
+  const autoCb = document.createElement("input");
+  autoCb.type = "checkbox";
+  autoCb.checked = !!m.auto_analyze;
+  autoCb.title = "文件稳定且发现错误时自动调用 LLM 分析";
+  autoCb.addEventListener("change", async () => {
+    await fetch("/monitors/" + m.monitor_id + "/auto-analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: autoCb.checked }),
+    });
+  });
+  autoLabel.appendChild(autoCb);
+  autoLabel.appendChild(document.createTextNode("自动分析"));
+  actions.appendChild(autoLabel);
+
+  const analyzeBtn = el("button", "btn", "分析日志");
+  analyzeBtn.addEventListener("click", () => openAnalyzeDialog(m.path));
+  actions.appendChild(analyzeBtn);
+
+  const delBtn = el("button", "btn danger", "删除");
+  delBtn.addEventListener("click", async () => {
+    delBtn.disabled = true;
+    await fetch("/monitors/" + m.monitor_id, { method: "DELETE" });
+    poll();
+  });
+  actions.appendChild(delBtn);
+  row.appendChild(actions);
+  card.appendChild(row);
+
+  const unmatched = m.unmatched || {};
+  card.appendChild(el("div", "stats",
+    "文件 " + m.files_tracked +
+    " ｜ 错误事件 " + m.error_event_count +
+    " ｜ 警告事件 " + m.warning_event_count +
+    " ｜ 未归类 E" + (unmatched.ERROR || 0) + "/W" + (unmatched.WARNING || 0) +
+    " ｜ 轮询 " + m.effective_interval + "s（深度 " + m.depth + "）"
+  ));
+  for (const rev of (m.recent_events || []).slice().reverse()) {
+    card.appendChild(el("div", "stats", "· [" + rev.level + "] " + (rev.file || "") + " " + (rev.code || rev.title || "") + " ×" + rev.count));
+  }
+  if (m.watcher_error) card.appendChild(el("div", "stats", "⚠ " + m.watcher_error));
+  return card;
+}
+
+// ── 对话框 ──
+function openDialog(title) {
+  $("dialog-overlay").classList.remove("hidden");
+  $("dialog-title-text").textContent = title;
+  $("dialog-body").innerHTML = "";
+  $("dialog-footer").innerHTML = "";
+  return { body: $("dialog-body"), footer: $("dialog-footer") };
+}
+function closeDialog() {
+  $("dialog-overlay").classList.add("hidden");
+}
+$("dialog-close").addEventListener("click", closeDialog);
+$("dialog-overlay").addEventListener("click", (e) => {
+  if (e.target.id === "dialog-overlay") closeDialog();
+});
+
+async function openBrowseDialog(mode, onPick) {
+  const dlg = openDialog(mode === "file" ? "选择日志文件" : "选择项目目录");
+  async function render(path) {
+    dlg.body.innerHTML = "";
+    dlg.body.appendChild(el("div", "spinner", "加载中…"));
+    try {
+      const res = await fetch("/fs/browse" + (path ? "?path=" + encodeURIComponent(path) : ""));
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "HTTP " + res.status);
+      dlg.body.innerHTML = "";
+      dlg.body.appendChild(el("div", "dialog-path", data.path));
+      if (data.parent) {
+        const up = el("div", "dir-row", "⬆ 上一级");
+        up.addEventListener("click", () => render(data.parent));
+        dlg.body.appendChild(up);
+      }
+      for (const d of data.directories) {
+        const row = el("div", "dir-row");
+        row.appendChild(el("span", "name", "📁 " + d.name));
+        if (d.solver_files) row.appendChild(el("span", "count", d.solver_files + " 个求解日志"));
+        row.addEventListener("click", () => render(d.path));
+        dlg.body.appendChild(row);
+      }
+      if (mode === "file") {
+        for (const f of data.files) {
+          const row = el("div", "dir-row");
+          row.appendChild(el("span", "name", "📄 " + f.name));
+          row.appendChild(el("span", "count", fmtBytes(f.size_bytes)));
+          row.addEventListener("click", () => { closeDialog(); onPick(f.path); });
+          dlg.body.appendChild(row);
+        }
+      }
+      if (!data.directories.length && !(data.files || []).length) {
+        dlg.body.appendChild(el("div", "empty", "空目录"));
+      }
+      dlg.footer.innerHTML = "";
+      if (mode === "directory") {
+        const pick = el("button", "btn primary", "选择当前目录");
+        pick.addEventListener("click", () => { closeDialog(); onPick(data.path); });
+        dlg.footer.appendChild(pick);
+      }
+    } catch (err) {
+      dlg.body.innerHTML = "";
+      dlg.body.appendChild(el("div", "empty", "加载失败：" + err.message));
+    }
+  }
+  await render(null);
+}
+
+function openAnalyzeDialog(defaultDir) {
+  const dlg = openDialog("LLM 分析日志");
+  const input = document.createElement("input");
+  input.className = "dialog-path";
+  input.type = "text";
+  input.placeholder = "日志文件绝对路径（.out / .err / .log）";
+  if (defaultDir) input.value = defaultDir.replace(/[\\/]+$/, "") + "\\";
+  dlg.body.appendChild(input);
+
+  const row = el("div", null);
+  row.style.display = "flex";
+  row.style.gap = "8px";
+  const browseBtn = el("button", "btn", "浏览文件…");
+  browseBtn.addEventListener("click", () => openBrowseDialog("file", (p) => { input.value = p; }));
+  row.appendChild(browseBtn);
+  row.appendChild(el("span", "stats", "文件稳定后再分析，结果更完整。"));
+  dlg.body.appendChild(row);
+
+  const result = el("div", "dialog-result");
+  dlg.body.appendChild(result);
+
+  const go = el("button", "btn primary", "开始分析");
+  go.addEventListener("click", async () => {
+    const filePath = input.value.trim();
+    if (!filePath) { input.focus(); return; }
+    go.disabled = true;
+    result.innerHTML = "";
+    result.appendChild(el("div", "spinner", "分析中（LLM 调用可能需要数秒）…"));
+    try {
+      const res = await fetch("/analyze-log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ log_path: filePath }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "HTTP " + res.status);
+      result.innerHTML = "";
+      result.appendChild(el("div", null, "检出错误：" + (data.error_count || 0)));
+      const seen = {};
+      for (const item of data.detected_errors || []) {
+        seen[item.error_code] = (seen[item.error_code] || 0) + 1;
+      }
+      const chips = el("div", "chips");
+      for (const [code, n] of Object.entries(seen)) {
+        chips.appendChild(el("span", "chip err", code + (n > 1 ? " ×" + n : "")));
+      }
+      if (chips.children.length) result.appendChild(chips);
+      const llm = data.llm_result || {};
+      result.appendChild(el("div", null, "分析模式：" + (llm.mode || "unknown") + " ｜ " + (llm.summary || "")));
+      result.appendChild(el("pre", null, llm.raw_analysis || (llm.suggestions || []).join("\n") || "无补充分析。"));
+      if (data.report_path) {
+        const link = el("a", null, "查看诊断报告 →");
+        link.href = "/reports/" + encodeURIComponent(String(data.report_path).split(/[\\/]/).pop());
+        link.target = "_blank";
+        result.appendChild(link);
+      }
+    } catch (err) {
+      result.innerHTML = "";
+      result.appendChild(el("div", null, "分析失败：" + err.message));
+    } finally {
+      go.disabled = false;
+    }
+  });
+  dlg.footer.appendChild(go);
+}
+
+async function runLlmTest(btn) {
+  btn.disabled = true;
+  const out = $("llm-test-result");
+  out.textContent = "连通测试中…";
+  try {
+    const res = await fetch("/llm/test", { method: "POST" });
+    const data = await res.json();
+    const when = data.checked_at ? new Date(data.checked_at * 1000).toLocaleTimeString() : "";
+    out.textContent = (data.reachable ? "✅ 连通正常" : "❌ 连接失败") + " ｜ " + (data.message || "") + "（" + when + "）";
+  } catch (err) {
+    out.textContent = "测试失败：" + err.message;
+  }
+  btn.disabled = false;
+}
+
+function openLlmConfigDialog() {
+  const dlg = openDialog("LLM 接口配置");
+  const llm = state.llmStatus || {};
+  const providers = llm.supported_providers || [];
+
+  const label = (text) => { const node = el("div", "expand-label", text); node.style.marginBottom = "4px"; return node; };
+
+  const providerSel = document.createElement("select");
+  providerSel.className = "dialog-path";
+  for (const p of providers) {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = p.name + (p.default_model ? "（默认 " + p.default_model + "）" : "");
+    if (p.id === llm.provider) opt.selected = true;
+    providerSel.appendChild(opt);
+  }
+
+  const modelInput = document.createElement("input");
+  modelInput.className = "dialog-path"; modelInput.type = "text";
+  modelInput.placeholder = "模型名（留空 = 使用所选提供商默认）";
+  modelInput.value = llm.model || "";
+
+  const baseUrlInput = document.createElement("input");
+  baseUrlInput.className = "dialog-path"; baseUrlInput.type = "text";
+  baseUrlInput.placeholder = "接口地址（留空 = 使用所选提供商默认）";
+  baseUrlInput.value = llm.base_url || "";
+
+  const keyInput = document.createElement("input");
+  keyInput.className = "dialog-path"; keyInput.type = "password";
+  keyInput.placeholder = llm.configured ? "已配置 Key（留空 = 保持不变）" : "API Key（sk-…）";
+
+  dlg.body.appendChild(label("提供商"));
+  dlg.body.appendChild(providerSel);
+  dlg.body.appendChild(label("模型"));
+  dlg.body.appendChild(modelInput);
+  dlg.body.appendChild(label("接口地址"));
+  dlg.body.appendChild(baseUrlInput);
+  dlg.body.appendChild(label("API Key"));
+  dlg.body.appendChild(keyInput);
+  dlg.body.appendChild(el("div", "stats", "仅本次运行生效（服务重启后回到 .env 配置）。Key 不会回显。"));
+
+  const result = el("div", "dialog-result");
+  dlg.body.appendChild(result);
+
+  const save = el("button", "btn primary", "保存并测试连通");
+  save.addEventListener("click", async () => {
+    save.disabled = true;
+    result.innerHTML = "";
+    result.appendChild(el("div", "spinner", "保存中…"));
+    try {
+      const payload = {
+        provider: providerSel.value,
+        model: modelInput.value.trim(),
+        base_url: baseUrlInput.value.trim(),
+      };
+      if (keyInput.value.trim()) payload.api_key = keyInput.value.trim();
+      const res = await fetch("/llm/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "HTTP " + res.status);
+      result.innerHTML = "";
+      result.appendChild(el("div", null, "✅ " + (data.message || "配置已更新")));
+      const testRes = await fetch("/llm/test", { method: "POST" });
+      const testData = await testRes.json();
+      result.appendChild(el("div", null, (testData.reachable ? "✅ 连通正常" : "❌ 连接失败") + " ｜ " + (testData.message || "")));
+      poll();
+    } catch (err) {
+      result.innerHTML = "";
+      result.appendChild(el("div", null, "保存失败：" + err.message));
+    }
+    save.disabled = false;
+  });
+  dlg.footer.appendChild(save);
+}
+
+$("llm-test-btn").addEventListener("click", function () { runLlmTest(this); });
+$("llm-config-btn").addEventListener("click", () => openLlmConfigDialog());
+$("llm-analyze-btn").addEventListener("click", () => openAnalyzeDialog());
+$("browse-btn").addEventListener("click", () => openBrowseDialog("directory", (p) => { $("monitor-path").value = p; }));
+$("add-monitor-btn").addEventListener("click", async function () {
+  const path = $("monitor-path").value.trim();
+  const hint = $("monitor-hint");
+  if (!path) { hint.textContent = "请先填写或选择项目目录。"; return; }
+  this.disabled = true;
+  hint.textContent = "创建监听中…";
+  try {
+    const res = await fetch("/monitors", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: path, auto_analyze: $("monitor-auto").checked }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "HTTP " + res.status);
+    hint.textContent = "已创建监听：" + data.monitor.monitor_id;
+    $("monitor-path").value = "";
+    $("monitor-auto").checked = false;
+    poll();
+  } catch (err) {
+    hint.textContent = "创建失败：" + err.message;
+  }
+  this.disabled = false;
+});
+
+restartTimer();
+poll();
+</script>
+</body>
+</html>
