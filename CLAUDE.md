@@ -5,7 +5,7 @@
 ## 架构概览
 
 ```
-main.py          FastAPI 入口，26+ 个 REST 端点，组装层
+main.py          FastAPI 入口，35 个 REST 端点，组装层
 ├─ paths.py          项目根锚定（所有文件系统默认路径的唯一来源，禁止相对 CWD）
 ├─ ansys_discovery.py  求解器发现（跨版本 v* glob + 跨平台 Windows/Linux/macOS）
 ├─ log_parser.py      日志解析 + 错误/警告正则模式库 + 诊断块解析
@@ -13,13 +13,15 @@ main.py          FastAPI 入口，26+ 个 REST 端点，组装层
 ├─ llm_analyzer.py    多提供商 LLM 分析 + 本地规则回退 + 观测事件记录
 ├─ report_generator.py Markdown 报告生成（支持嵌入可视化图片与证据章节）
 ├─ ansys_runner.py    PyMAPDL 封装（.inp/.dat/.mac + 模板仿真 + 后处理）
-├─ mechanical_runner.py PyMechanical（版本下限 242+，批量接触）
+├─ mechanical_runner.py PyMechanical（版本下限 242+，批量接触 / 脚本 / 模板 / 图片导出）
+├─ mechanical_post_processor.py  Mechanical 云图导出与结果提取脚本生成
 ├─ simulation_templates.py  预定义仿真模板（悬臂梁 / 带孔板 / 粘弹性盘）
 ├─ post_processor.py  PyVista 离屏云图 + matplotlib 应力曲线 + stdio 保护
 ├─ solve_watcher.py   流式证据监视器（跨进程文件跟随 + 块解析 + 去重计数）
 ├─ folder_monitor.py  被动项目监听（有界递归 + 稳定触发 + 静默退避）
 ├─ job_manager.py     异步任务管理（监督者线程、超时强杀、取消、状态持久化）
-└─ observability.py   运行事件环形缓冲 + JSONL 落盘（仪表盘数据源）
+├─ observability.py   运行事件环形缓冲 + JSONL 落盘（仪表盘数据源）
+└─ knowledge_bridge.py  工程经验 / 报告摘要推送 Obsidian 知识库
 ```
 
 核心链路：`日志 → 错误检测 → LLM分析 → Markdown报告`
@@ -38,10 +40,10 @@ pip install -r requirements.txt
 # 可选：安装 Mechanical 支持
 pip install -r requirements-mechanical.txt
 
-# 测试日志分析
+# 测试日志分析（路径用 clone 后的绝对路径，Windows 建议正斜杠）
 curl -X POST http://127.0.0.1:8000/analyze-log \
   -H "Content-Type: application/json" \
-  -d '{"log_path": "D:\\ansysagent\\sample_logs\\demo_solver.out"}'
+  -d '{"log_path": "<项目根>/sample_logs/demo_solver.out"}'
 ```
 
 ## 关键约定
@@ -88,12 +90,14 @@ curl -X POST http://127.0.0.1:8000/analyze-log \
 | `report_generator.py` | Markdown 拼装 + 落盘 | 不分析、不调用 API |
 | `ansys_runner.py` | MAPDL 生命周期管理 + 模板仿真 + 后处理调度 + 环境诊断 | 不分析日志 |
 | `mechanical_runner.py` | Mechanical 批量接触 + 会话句柄暴露 | 不处理 MAPDL |
+| `mechanical_post_processor.py` | Mechanical 云图脚本生成 + 结果提取 | 不启动 Mechanical 会话 |
 | `simulation_templates.py` | 预定义模板 APDL 命令生成 | 不调用求解器 |
 | `post_processor.py` | PyVista 云图 + matplotlib 曲线 + stdio 保护 | 不管理 MAPDL 生命周期 |
 | `solve_watcher.py` | 只读跟随日志文件 + 模式分类 + 证据落盘 | 不管理求解器生命周期 |
 | `folder_monitor.py` | 项目目录监听 + 错误事件 + 稳定触发回调 | 不直接调用 LLM（经 Manager 回调） |
 | `job_manager.py` | 任务调度 + 超时/取消 + 证据收尾 | 不实现求解逻辑 |
 | `observability.py` | 事件缓冲 + 落盘 + 语义化记录函数 | 不做业务判断 |
+| `knowledge_bridge.py` | 知识库推送桥接（Obsidian） | 不做分析判断 |
 
 ## 扩展错误检测
 
@@ -108,9 +112,9 @@ curl -X POST http://127.0.0.1:8000/analyze-log \
 
 ## 环境要求
 
-- Python 3.11+
-- Windows + ANSYS 241+（PyMAPDL 真实执行需要）
-- ANSYS 242+（PyMechanical 批量接触需要）
+- Python 3.11+（`main.py` 启动时强制校验）
+- 任意操作系统：Windows / Linux / macOS（平台能力差异见 README「平台支持矩阵」）
+- ANSYS 安装（可选）：MAPDL 版本不限（自动发现最新版）用于真实求解；PyMechanical 需 242+（批量接触 / 脚本 / 模板）。未安装时除求解端点外全部可用
 - LLM API Key（可选，无 Key 时回退本地规则）
 
 ## LLM 多提供商支持
@@ -182,7 +186,7 @@ LLM_MODEL=your-model-name
 
 | MCP Server | 工具 | 用途 |
 |-----------|------|------|
-| `ansys-local` | `mapdl_status`, `mapdl_execute`, `mapdl_demo`, `mechanical_status`, `mechanical_batch_contact`, `run_template_simulation`, `postprocess_visualization` | PyMAPDL/PyMechanical 执行、模板仿真、后处理可视化 |
+| `ansys-local` | `mapdl_status`, `mapdl_execute`, `mapdl_demo`, `mechanical_status`, `mechanical_batch_contact`, `mechanical_run_script`, `mechanical_extract_results`, `mechanical_export_image`, `mechanical_diagnose`, `log_analyze`, `health_check` | PyMAPDL / PyMechanical 执行、批量接触、结果提取、云图导出、日志诊断（实现见 `.claude/mcp-servers/ansys-mcp/server.py`） |
 | `deepseek` | `chat_completion`, `completion`, `get_user_balance` | DeepSeek V4 LLM 分析（与 llm_analyzer.py 共用 API Key） |
 | `filesystem` | 文件读写 (MCP 标准) | 安全访问工作目录：sample_inputs, sample_logs, ansys_workspace, reports |
 
@@ -224,57 +228,46 @@ LLM_MODEL=your-model-name
 - `license_service`: ANSYS License Manager CVD 服务运行状态
 - `post_processing`: PyVista / matplotlib / numpy / ansys-tools-visualization-interface 导入状态
 
-## Skills 目录
+## Skills（`skills/` 目录）
 
-### `.claude/skills/` — CAE 领域 Skills
+项目 Skills 存放在 `skills/`（13 个），生命周期由 [AGENTS.md](AGENTS.md) 约定：结构、哈希与提交状态在 pre-push 时经 `.skills/skill_lifecycle.py verify-project` 校验。入口索引见 [skills/INDEX.md](skills/INDEX.md)。
 
-| Skill | 描述 | 触发方式 |
-|-------|------|---------|
-| `check-ansys-env` | 检查 LLM + PyMAPDL + PyMechanical 完整环境 | `/check-ansys-env` |
-| `run-log-analysis` | 分析 ANSYS 求解日志，检测错误 + LLM 诊断 + 报告 | `/run-log-analysis` |
-| `run-mapdl-input` | 执行 .inp/.dat/.mac 输入文件并可选自动分析 | `/run-mapdl-input` |
-| `batch-contact` | 按 Named Selection 前缀批量创建接触对（242+） | `/batch-contact` |
-| `git-workflow` | Git 提交/推送/PR 全流程自动化 + 程序化流水线 | `/git-workflow` |
+| Skill | 用途 |
+|-------|------|
+| `knowledge-driven-skill-sync` | Skill 知识同步与生命周期管理 |
+| `check-ansys-env` | LLM + PyMAPDL + PyMechanical 环境自检 |
+| `run-log-analysis` | 求解日志错误检测 + LLM 诊断 + 报告 |
+| `run-mapdl-input` | 执行 .inp/.dat/.mac 并可选串联分析 |
+| `batch-contact` | 按 Named Selection 前缀批量建接触对（242+） |
+| `meeting-notes-organizer` | 会议对话 → 结构化 Markdown 笔记 |
+| `code-debugger` | 结构化缺陷定位与最小修复 |
+| `git-workflow` | 提交 / 推送 / PR 流程 |
+| `pre-push-review` | 推送前只读评审门禁 |
+| `pull-audit` | 拉取 / 同步前的变更审计 |
+| `cross-agent-audit` | 跨 Agent 产出交叉审计 |
+| `skill-creator-fable5` | 按 Fable5 结构生成新 Skill |
+| `fable5-code-principle` | Fable5 代码原则检查 |
 
-### `.reasonix/skills/` — 通用/元 Skills（来自 obsidian_stack 融合）
+> 各 SKILL.md 中引用的 `references/knowledge.md` 由 `python .skills/skill_lifecycle.py pull-knowledge --skill <name>` 按需生成：仓库里只有 `knowledge-driven-skill-sync` 自带该文件，其余出现属正常生成结果。
 
-| Skill | 描述 | 触发方式 |
-|-------|------|---------|
-| `skill-generator` | 读取 Fable5 知识库，自动生成专业 Skill | `/skill-generator` |
-| `meeting-notes-organizer` | 会议对话 → 结构化 Markdown 笔记 | `/meeting-notes-organizer` |
+## 知识库与本地资料
 
-## 知识库 (knowledge-base/)
-
-知识库内容按项目颜色分类，详见 [INDEX.md](knowledge-base/INDEX.md) 和 [项目颜色注册表](knowledge-base/projects/project-registry.md)。Obsidian 笔记功能总结见 [obsidian-note-system.md](knowledge-base/obsidian-note-system.md)。
+仓库内 `knowledge-base/` 只保留可公开的通用知识：
 
 ```
-.claude/
-├── skills/                       🎯 CAE 领域 + 通用 Skills（6 个）
-├── workflows/                    🔧 程序化工作流（git-workflow.js）
 knowledge-base/
-├── INDEX.md                     🔍 颜色分类全景索引
-├── obsidian-note-system.md      📝 Obsidian 笔记系统功能总览
-├── projects/
-│   └── project-registry.md      🎨 项目颜色注册表（5 项目 → 色值映射）
-├── prompts/fable5/              ⚪ Fable5 提示词工程模板（跨项目通用）
-│   ├── fable5-modules.md        10 大行为模块拆解 (M1-M9)
-│   └── fable5-full-prompt.md    完整系统提示词参考
-├── templates/
-│   └── skill-template.md        Skill 构造模板 (M0-M10, 含项目颜色 M0)
-├── domain-knowledge/            🔵 CAE 领域知识积累
-│   └── contact-analysis-best-practices.md
-└── skills-output/               生成的 Skill 备份（按项目颜色标记）
+└── domain-knowledge/
+    ├── contact-analysis-best-practices.md   # 接触算法 / 刚度 / 排查清单
+    └── code-architecture-graphify.md        # Graphify 代码架构图谱分析
 ```
 
-**项目颜色速查：** 🔵 `cae-agent` | 🟢 `reasonix` | 🟣 `obsidian-stack` | 🟠 `ansys-tools` | ⚪ `fable5`
-
-`book/v241/` 目录存放 ANSYS v241 官方 PDF 手册（100+ 本），可通过 Read 工具直接查阅。
+以下资料仅存在于维护者本机工作区（已列入 `.gitignore`，不随仓库发布）：`knowledge-base/INDEX.md`、`knowledge-base/obsidian-note-system.md`、`knowledge-base/projects/`（项目颜色注册表）、`knowledge-base/prompts/fable5/`、`knowledge-base/templates/`、`knowledge-base/skills-output/`、`book/v241/`（ANSYS 官方 PDF 手册）。引用这些路径前请先确认本机存在。
 
 ## 工具使用指引
 
-- 读取 ANSYS 手册 → `Read` 工具读取 `book/v241/` 中的 PDF（20 页/次）
+- 读取 ANSYS 手册 → 本机 `book/v241/`（未入库）的 PDF 用 Read 工具分页读取
 - 执行 MAPDL → `mcp__ansys-local__mapdl_execute` 或 `POST /run-mapdl-input`
 - LLM 分析日志 → `mcp__deepseek__chat_completion` 或 `POST /analyze-log`
 - 文件操作 → `mcp__filesystem__*` 或 `Read`/`Write`/`Edit` 工具
-- 启动服务 → `bash("uvicorn main:app --reload --host 0.0.0.0 --port 8000")`
-- 生成新 Skill → `/skill-generator` 读取知识库自动生成
+- 启动服务 → `python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000`
+- 生成新 Skill → `skill-creator-fable5` 按 Fable5 结构生成

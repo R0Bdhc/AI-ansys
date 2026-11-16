@@ -65,3 +65,5 @@ NS_SRC_FLANGE_A    NS_TGT_FLANGE_A  → AUTO_CONTACT_FLANGE_A
 
 - ANSYS Mechanical APDL Contact Technology Guide (PDF: book/v241/ANSYS_Mechanical_APDL_Contact_Technology_Guide.pdf)
 - ANSYS Mechanical APDL Structural Analysis Guide (PDF: book/v241/ANSYS_Mechanical_APDL_Structural_Analysis_Guide.pdf)
+
+> 上述 PDF 位于维护者本机 `book/v241/`（已列入 `.gitignore`，未随仓库发布）；仓库内没有该目录，需要时请自备官方手册。

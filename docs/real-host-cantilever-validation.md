@@ -5,7 +5,7 @@
 
 ## 1. 环境门禁
 
-1. 使用项目虚拟环境执行 `python -c "import main"`，确认 API 依赖可导入。
+1. 在 ≥3.11 的解释器中执行 `python -c "import main"`，确认 API 依赖可导入（`main.py` 启动时会强制校验 Python 3.11+，低版本直接 `RuntimeError`）。
 2. 执行 `python -c "from ansys_runner import AnsysRunner; print(AnsysRunner().get_environment_status())"`。
 3. 必须同时满足 `pymapdl_importable=true` 与 `detected_mapdl_exec` 非空；否则不得执行真实求解。
 4. 将实际安装的 MAPDL 路径配置为 `MAPDL_EXECUTABLE`。`ANSYS_DIR` 和 `AWP_ROOT` 只作为备用目录配置。
@@ -16,6 +16,8 @@
 ## 2. 重建兼容环境
 
 本机 ANSYS 252 自带 CPython 3.10，可用于创建与现有 CPython 3.10 wheels 兼容的虚拟环境：
+
+> 注意：该 3.10 环境只用于跑 `scripts/validate_cantilever.py`（它直接导入 `ansys_runner`，不经过 `main.py` 的 3.11+ 门禁）。要启动 API / 仪表盘，必须另建 3.11+ 环境——两者不可混用。
 
 ```powershell
 $python = 'D:\Program Files (x86)\ANSYS Inc25\v252\commonfiles\CPython\3_10\winx64\Release\python\python.exe'

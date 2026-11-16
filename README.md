@@ -2,6 +2,8 @@
 
 面向 ANSYS 场景的 LLM 智能辅助 CAE 系统：用 FastAPI 串联 **求解器自动化（PyMAPDL / PyMechanical）+ 日志错误检测 + LLM 诊断 + Markdown 报告 + 后处理可视化**，形成从"提交仿真"到"拿到带图报告"的闭环。
 
+> 仓库名 `AI-ansys`，项目内部代号 `cae-agent`；下文命令均以仓库根目录为工作目录。
+
 ## 核心特性
 
 - **求解器自动化**：封装 PyMAPDL 执行 `.inp/.dat/.mac` 输入文件与内置示例；封装 PyMechanical（242+）执行脚本、批量创建接触对
@@ -19,7 +21,7 @@
 ## 架构总览
 
 ```
-main.py                 FastAPI 入口（26 个端点，路由 + 模块串联，无业务逻辑）
+main.py                 FastAPI 入口（35 个端点，路由 + 模块串联，无业务逻辑）
 ├─ 分析链路
 │  ├─ log_parser.py         日志读取 + 正则错误/警告模式库 + 诊断块解析
 │  ├─ analysis_pipeline.py  统一诊断链路（检测→证据合并→LLM→报告），LLM 单例
@@ -79,9 +81,21 @@ AI-ansys/
 ├─ docs/                      # 真机验证记录等文档
 ├─ sample_inputs/             # 示例输入文件（.inp 等）
 ├─ sample_logs/               # 示例求解日志
-├─ reports/                   # 报告与可视化输出目录
-└─ runtime_data/              # 求解器运行时目录 / 证据 journal / 任务状态
+├─ reports/                   # 运行时生成：报告与可视化输出（.gitignore 排除）
+└─ runtime_data/              # 运行时生成：求解器目录 / 证据 journal / 任务状态（.gitignore 排除）
 ```
+
+## 文档地图
+
+| 文档 | 面向 | 内容 |
+|------|------|------|
+| [README.md](README.md) | 所有人 | 功能全貌、安装、REST API、仪表盘、MCP |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | 部署者 | 新机器部署、数据目录、现场 FAQ |
+| [CLAUDE.md](CLAUDE.md) | Agent / 贡献者 | 模块职责边界、关键约定、扩展指南 |
+| [AGENTS.md](AGENTS.md) | Agent | Skills 生命周期约定（由 lifecycle 工具生成并校验） |
+| [skills/INDEX.md](skills/INDEX.md) | Agent | 项目托管的 13 个 Skill 入口 |
+| [docs/real-host-cantilever-validation.md](docs/real-host-cantilever-validation.md) | 验证者 | 真机悬臂梁验收流程与本机环境要求 |
+| [knowledge-base/](knowledge-base) | 所有人 | CAE 领域知识与架构分析笔记 |
 
 ## 环境要求
 
@@ -227,9 +241,10 @@ python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
 **日志诊断**（支持文件路径或直接传文本）：
 
 ```bash
+# 路径统一用 clone 后的绝对路径（Windows 建议正斜杠，如 D:/Projects/AI-ansys）
 curl -X POST http://127.0.0.1:8000/analyze-log \
   -H "Content-Type: application/json" \
-  -d '{"log_path": "D:\\Projects\\AI-ansys\\sample_logs\\demo_solver.out"}'
+  -d '{"log_path": "<项目根>/sample_logs/demo_solver.out"}'
 ```
 
 **执行 MAPDL 输入文件**（求解后自动收集日志并生成诊断报告）：
@@ -238,7 +253,7 @@ curl -X POST http://127.0.0.1:8000/analyze-log \
 curl -X POST http://127.0.0.1:8000/run-mapdl-input \
   -H "Content-Type: application/json" \
   -d '{
-    "input_file_path": "D:\\Projects\\AI-ansys\\sample_inputs\\bar_example.inp",
+    "input_file_path": "<项目根>/sample_inputs/bar_example.inp",
     "analyze_after_run": true
   }'
 ```
@@ -271,7 +286,7 @@ curl -X POST http://127.0.0.1:8000/mechanical-contact-batch-plan \
 # 提交：立即返回 run_id
 curl -X POST http://127.0.0.1:8000/runs \
   -H "Content-Type: application/json" \
-  -d '{"kind": "mapdl_input", "params": {"input_file_path": "D:\\Projects\\AI-ansys\\sample_inputs\\bar_example.inp"}, "timeout_seconds": 600}'
+  -d '{"kind": "mapdl_input", "params": {"input_file_path": "<项目根>/sample_inputs/bar_example.inp"}, "timeout_seconds": 600}'
 
 # 轮询：状态、结果、流式证据（事件表 + 日志尾部 + journal 路径）与诊断报告
 curl http://127.0.0.1:8000/runs/{run_id}
@@ -390,3 +405,7 @@ Mechanical 模板（`mechanical_runner.py` 内置）：`cantilever_beam`（悬�
 - PyMechanical 文档：https://mechanical.docs.pyansys.com/
 - DeepSeek API 文档：https://platform.deepseek.com/api-docs
 - PyVista 文档：https://docs.pyvista.org/
+
+## 许可
+
+本项目基于 [MIT License](LICENSE) 开源，Copyright (c) 2026 R0Bdhc。

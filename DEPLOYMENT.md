@@ -6,8 +6,9 @@
 
 ```bash
 # 1) 安装 Python 3.11+（服务启动时强制校验）
-# 2) 获取代码（clone 或解压发布包）
-cd cae-agent
+# 2) 获取代码（仓库名 AI-ansys：clone 或解压发布包）
+git clone https://github.com/R0Bdhc/AI-ansys.git
+cd AI-ansys
 
 # 3) 安装核心依赖（无 ANSYS 的机器也可安装，求解功能自动降级）
 pip install -r requirements.txt

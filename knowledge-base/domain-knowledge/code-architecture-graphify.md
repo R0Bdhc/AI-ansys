@@ -1,7 +1,7 @@
 # AI-ansys 代码架构图谱分析 (Graphify)
 
 > 🔵 `cae-agent` | 生成工具: `graphify` (v0.9.33) | 模式: `--code-only` | 日期: 2026-08-05
-> 关联分析: [[obsidian-note-system]] | 关联文档: [CLAUDE.md](../CLAUDE.md)
+> 关联分析: [[obsidian-note-system]]（本机笔记，未入库） | 关联文档: [CLAUDE.md](../../CLAUDE.md)
 
 ---
 
@@ -24,7 +24,7 @@
 
 ## 一、社区 ↔ 模块职责映射表
 
-将 Graphify 自动发现的 11 个社区与 [CLAUDE.md](../CLAUDE.md) 中**手动维护**的模块职责表进行对比：
+将 Graphify 自动发现的 11 个社区与 [CLAUDE.md](../../CLAUDE.md) 中**手动维护**的模块职责表进行对比：
 
 | 社区 | 核心节点 | 对应 CLAUDE.md 模块 | 职责匹配度 |
 |------|---------|---------------------|-----------|
@@ -80,21 +80,21 @@ Graphify 通过 AST 推断出的非显式导入关系，需人工验证：
 
 ## 四、发现的问题与知识缺口
 
-### 4.1 🚨 重复代码 (Critical) — **已验证**
+### 4.1 ⚠️ 重复代码（已核实为分发副本，非缺陷）
 
 **Community 0** 和 **Community 1** 几乎完全相同（各 46 个节点），分别对应：
-- `skills/knowledge_driven_skill_sync/scripts/skill_lifecycle.py`
-- `.skills/skill_lifecycle.py`
+- `skills/knowledge-driven-skill-sync/scripts/skill_lifecycle.py`（Skill 自带的规范脚本）
+- `.skills/skill_lifecycle.py`（`sync-projects` 从规范脚本复制到项目内的分发副本）
 
 **验证命令**:
 ```bash
-diff skills/knowledge_driven_skill_sync/scripts/skill_lifecycle.py .skills/skill_lifecycle.py
+diff skills/knowledge-driven-skill-sync/scripts/skill_lifecycle.py .skills/skill_lifecycle.py
 # 输出: 0 行差异（完全字节级相同）
 ```
 
-这是**同一文件在两个层级维护**。根据 `.skills/skill_lifecycle.py` 的 pre-push hook 逻辑，它要求所有 managed skill 产物必须已提交，但 `skills/` 目录下的副本可能处于不同版本状态。
+这不是重复实现：`.skills/skill_lifecycle.py` 由 Skill 生命周期工具自动生成，其哈希被写入 `.skills/skills-lock.json`，pre-push 钩子会校验两者一致。**不要删除任何一份**——删除项目副本会让 `verify-project` 失败；删除 Skill 内脚本则丢失规范来源。
 
-**建议**: 删除 `skills/knowledge_driven_skill_sync/scripts/skill_lifecycle.py`，统一以 `.skills/skill_lifecycle.py` 为唯一来源。
+**建议**: 保持现状，由 `sync-projects` 维持两份字节一致。
 
 ### 4.2 孤立节点 (Knowledge Gaps)
 
@@ -112,13 +112,14 @@ diff skills/knowledge_driven_skill_sync/scripts/skill_lifecycle.py .skills/skill
 
 ### 4.3 未在 CLAUDE.md 中显式文档化的组件
 
-Graphify 发现了以下组件，但 CLAUDE.md 未提及：
+Graphify 曾发现以下组件未被手动文档覆盖，当前状态：
 
-| 组件 | 位置 | 建议 |
+| 组件 | 位置 | 状态 |
 |------|------|------|
-| `scripts/validate_cantilever.py` | `scripts/` | 在 CLAUDE.md 的"常用命令"中补充验证脚本说明 |
-| `knowledge_bridge.py` | 根目录 | 补充到架构概览（Obsidian 知识库桥接） |
-| `.githooks/pre-push` | `.githooks/` | 在 AGENTS.md 或 CLAUDE.md 中说明 pre-push 校验逻辑 |
+| `scripts/validate_cantilever.py` | `scripts/` | ✅ 已在 README「验证与测试」列出 |
+| `mechanical_post_processor.py` | 根目录 | ✅ 已纳入 CLAUDE.md 架构概览与职责表 |
+| `knowledge_bridge.py` | 根目录 | ✅ 已纳入 CLAUDE.md 架构概览与职责表 |
+| `.githooks/pre-push` | `.githooks/` | ✅ 由 AGENTS.md 声明，`verify-project` 执行校验 |
 
 ---
 
@@ -139,7 +140,7 @@ Graphify 发现了以下组件，但 CLAUDE.md 未提及：
 
 ## 六、与 validation.json 的关联
 
-[validation.json](../runtime_data/cantilever_validation/validation.json) 的执行链路可通过 Graphify 图谱完整追溯：
+`runtime_data/cantilever_validation/validation.json`（运行时生成，未入库）的执行链路可通过 Graphify 图谱完整追溯：
 
 ```
 main.py (Community 2)
@@ -160,8 +161,8 @@ Graphify 的 `path` 功能可直接回答："从 `TemplateSimulationRequest` 到
 
 ### 短期 (方案 A 延续)
 
-1. **修复重复代码**: 对比 `.skills/skill_lifecycle.py` 与 `skills/knowledge_driven_skill_sync/scripts/skill_lifecycle.py`，删除后者或建立符号链接
-2. **补充 CLAUDE.md**: 将 `knowledge_bridge.py` 和 `scripts/validate_cantilever.py` 纳入架构概览
+1. **保持分发副本同步**: `.skills/skill_lifecycle.py` 与 `skills/knowledge-driven-skill-sync/scripts/skill_lifecycle.py` 由 `sync-projects` 保持字节一致，`verify-project` 校验哈希，无需删除
+2. **补充 CLAUDE.md**: `knowledge_bridge.py` 已纳入架构概览与职责表；`scripts/validate_cantilever.py` 已在 README「验证与测试」列出
 3. **安装 Graphify Claude 集成**: `graphify claude install` 会在 `CLAUDE.md` 中追加 PreToolUse hook，使 Glob/Grep 调用先查图谱再查文件系统，节省 token
 
 ### 中期 (方案 B 前置条件)
