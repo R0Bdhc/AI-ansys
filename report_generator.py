@@ -3,6 +3,7 @@ from pathlib import Path
 
 # 集成 obsidian-stack 知识推送
 from knowledge_bridge import push_report_summary
+from paths import project_path
 
 
 def build_markdown_report(
@@ -260,11 +261,11 @@ def _render_evidence(lines: list[str], evidence: dict, section_num: int) -> None
 
 def save_markdown_report(
     markdown_content: str,
-    output_dir: str | Path = "reports",
+    output_dir: str | Path | None = None,
     push_to_knowledge: bool = True,
 ) -> Path:
     """把 Markdown 报告保存到本地文件，并可选推送至 Obsidian 知识库。"""
-    output_path = Path(output_dir)
+    output_path = Path(output_dir) if output_dir else project_path("reports")
     output_path.mkdir(parents=True, exist_ok=True)
 
     filename = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"

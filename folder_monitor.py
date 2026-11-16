@@ -26,6 +26,7 @@ from typing import Any, Callable
 
 from log_parser import ERROR_PATTERNS, WARNING_PATTERNS
 from observability import record_event
+from paths import project_path
 from solve_watcher import BlockStreamParser, _normalize_for_signature
 
 _SOLVE_DONE_MARKER = re.compile(r"ROUTINE\s+COMPLETED", re.IGNORECASE)
@@ -358,12 +359,23 @@ class FolderMonitor:
             }
         return view
 
+    def _resolve_tracked_file(self, rel_key: str) -> Path | None:
+        """解析监听内相对路径并做目录包含校验（rel_key 来自 API 外部输入，防路径穿越）。"""
+        try:
+            candidate = (self.path / rel_key).resolve()
+        except (OSError, ValueError):
+            return None
+        root = self.path.resolve()
+        if candidate != root and root not in candidate.parents:
+            return None
+        return candidate
+
     def file_text(self, rel_key: str, max_bytes: int = 200_000) -> str | None:
         """读取被监听文件的尾部内容（供 LLM 分析），超出上限取尾部。"""
         with self._lock:
             state = self._file_state.get(rel_key)
-        file_path = self.path / rel_key
-        if not file_path.is_file():
+        file_path = self._resolve_tracked_file(rel_key)
+        if file_path is None or not file_path.is_file():
             return None
         try:
             size = file_path.stat().st_size
@@ -385,10 +397,10 @@ class FolderMonitor:
 class FolderMonitorManager:
     """监听器注册表：创建/枚举/删除/切换自动分析，配置持久化，服务重启后恢复。"""
 
-    def __init__(self, persistence_path: str | Path = "runtime_data/monitors.json") -> None:
+    def __init__(self, persistence_path: str | Path | None = None) -> None:
         self._lock = threading.Lock()
         self._monitors: dict[str, FolderMonitor] = {}
-        self._persistence_path = Path(persistence_path)
+        self._persistence_path = Path(persistence_path) if persistence_path else project_path("runtime_data", "monitors.json")
         self._llm_analyzer = None  # 延迟注入，避免循环依赖
         self._restore()
 

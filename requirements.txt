@@ -1,9 +1,14 @@
 # -*- coding: utf-8 -*-
+# 核心依赖：服务、日志诊断、仪表盘、项目监听、异步任务（无 ANSYS 也可运行）
 fastapi==0.115.12
 uvicorn[standard]==0.34.2
 openai==1.79.0
-ansys-mapdl-core>=0.73.0
 python-dotenv==1.1.0
+
+# PyMAPDL 集成（无 ANSYS 安装的机器上仅环境检测不可用，其余功能正常）
+ansys-mapdl-core>=0.73.0
+platformdirs>=4.0.0
+appdirs>=1.4.4
 
 # 后处理可视化（融合 ansys-structural-mcp 能力）
 pyvista>=0.48.0

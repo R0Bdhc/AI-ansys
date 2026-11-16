@@ -19,8 +19,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-# Obsidian Vault 目标路径（可通过环境变量覆盖，默认为 D:/knowledgement）
-VAULT_ROOT = Path(os.getenv("OBSIDIAN_VAULT_ROOT", "D:/knowledgement"))
+from paths import project_path
+
+# Obsidian Vault 目标路径（可通过环境变量覆盖；缺省为项目内 knowledge_vault，跨机器可移植）
+VAULT_ROOT = Path(os.getenv("OBSIDIAN_VAULT_ROOT", "") or project_path("knowledge_vault"))
 PROJECT_DIR = VAULT_ROOT / "Projects" / "ansysagent"
 
 

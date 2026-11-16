@@ -3,28 +3,38 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ansys_discovery import (
+    check_license_status,
+    discover_mapdl,
+    platform_label,
+    prepare_runtime_dirs,
+)
+from paths import project_path
 from post_processor import PostProcessor
 from simulation_templates import build_template, get_template_info, list_templates
 
 
 class AnsysRunner:
-    """封装 ANSYS / PyMAPDL 执行流程，集成模板仿真、后处理可视化与环境诊断。"""
+    """封装 ANSYS / PyMAPDL 执行流程，集成模板仿真、后处理可视化与环境诊断。
+
+    求解器发现、许可证检查、运行时目录重定向统一委托 ansys_discovery（跨版本/跨平台）。
+    """
 
     def __init__(self) -> None:
-        self.default_workdir = Path("ansys_workspace")
-        self.runtime_local_appdata = Path("runtime_data") / "localappdata"
-        self.runtime_roaming_appdata = Path("runtime_data") / "appdata"
+        self.default_workdir = project_path("ansys_workspace")
+        self.runtime_root = project_path("runtime_data")
+        self.runtime_local_appdata = self.runtime_root / "localappdata"
+        self.runtime_roaming_appdata = self.runtime_root / "appdata"
         self.runtime_pymapdl_user_data = self.runtime_local_appdata / "Ansys" / "ansys_mapdl_core"
 
+        # 机器专属路径一律走环境变量，不设盘符缺省值
         self.configured_mapdl_executable = self._optional_path("MAPDL_EXECUTABLE")
-        self.ansys_dir = self._optional_path("ANSYS_DIR") or Path(
-            os.getenv("ANSYS241_DIR", r"D:\ANSYS Inc\v241\ANSYS")
-        )
-        self.ansyslic_dir = Path(os.getenv("ANSYSLIC_DIR", r"D:\ANSYS Inc\Shared Files\Licensing"))
-        self.awp_root = self._optional_path("AWP_ROOT") or Path(os.getenv("AWP_ROOT241", r"D:\ANSYS Inc\v241"))
+        self.ansys_dir = self._optional_path("ANSYS_DIR")
+        self.ansyslic_dir = self._optional_path("ANSYSLIC_DIR")
+        self.awp_root = self._optional_path("AWP_ROOT")
         self.supported_input_suffixes = {".inp", ".dat", ".mac"}
 
-        self.post_processor = PostProcessor(output_dir="reports")
+        self.post_processor = PostProcessor(output_dir=project_path("reports"))
 
     @staticmethod
     def _optional_path(variable_name: str) -> Path | None:
@@ -55,23 +65,8 @@ class AnsysRunner:
 
     @staticmethod
     def check_license_service() -> dict:
-        """检查 ANSYS License Manager CVD 服务状态（Windows）。"""
-        try:
-            result = subprocess.run(
-                ["sc", "query", "ANSYS, Inc. License Manager CVD"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            output = result.stdout + result.stderr
-            if "RUNNING" in output:
-                return {"running": True, "message": "ANSYS License Manager CVD 服务正在运行。"}
-            elif "STOPPED" in output:
-                return {"running": False, "message": "ANSYS License Manager CVD 服务已停止。", "fix": "在 services.msc 中启动该服务。"}
-            else:
-                return {"running": False, "message": "无法确定许可证服务状态。", "detail": output[:500]}
-        except Exception as exc:
-            return {"running": False, "message": "检查许可证服务时出错。", "error": str(exc)}
+        """检查 ANSYS 许可证状态（跨平台，委托 ansys_discovery）。"""
+        return check_license_status()
 
     def get_environment_status(self) -> dict:
         self._prepare_pymapdl_runtime()
@@ -85,18 +80,20 @@ class AnsysRunner:
             pymapdl_importable = False
             pymapdl_error = str(exc)
 
-        exec_file = self._find_mapdl_executable()
+        discovery = discover_mapdl()
+        exec_file = discovery["exec_path"]
         license_status = self.check_license_service()
         viz_status = self.post_processor.check_visualization_env()
 
         status = {
+            "platform": platform_label(),
             "pymapdl_importable": pymapdl_importable,
-            "ansys_dir": str(self.ansys_dir),
-            "ansys_dir_exists": self.ansys_dir.exists(),
-            "ansyslic_dir": str(self.ansyslic_dir),
-            "ansyslic_dir_exists": self.ansyslic_dir.exists(),
-            "awp_root": str(self.awp_root),
-            "awp_root_exists": self.awp_root.exists(),
+            "ansys_dir": str(self.ansys_dir) if self.ansys_dir else None,
+            "ansys_dir_exists": self.ansys_dir.exists() if self.ansys_dir else None,
+            "ansyslic_dir": str(self.ansyslic_dir) if self.ansyslic_dir else None,
+            "ansyslic_dir_exists": self.ansyslic_dir.exists() if self.ansyslic_dir else None,
+            "awp_root": str(self.awp_root) if self.awp_root else None,
+            "awp_root_exists": self.awp_root.exists() if self.awp_root else None,
             "configured_mapdl_executable": str(self.configured_mapdl_executable)
             if self.configured_mapdl_executable
             else None,
@@ -105,18 +102,23 @@ class AnsysRunner:
             "runtime_pymapdl_user_data": str(self.runtime_pymapdl_user_data.resolve()),
             "detected_mapdl_exec": str(exec_file) if exec_file else None,
             "detected_mapdl_exec_exists": exec_file is not None,
+            "detected_versions": discovery.get("all_versions") or [],
+            "detected_version": discovery.get("version"),
+            "discovery_source": discovery.get("source"),
+            "discovery_notes": discovery.get("searched") or [],
             "supported_input_suffixes": sorted(self.supported_input_suffixes),
             "license_service": license_status,
             "post_processing": viz_status,
             "message": self._build_status_message(
                 pymapdl_importable=pymapdl_importable,
                 exec_file=exec_file,
+                version=discovery.get("version"),
             ),
             "notes": [
-                "MAPDL_EXECUTABLE 优先用于定位 MAPDL；ANSYS_DIR 和 AWP_ROOT 为目录级备用配置。",
-                "ANSYS241_DIR 和 AWP_ROOT241 仍作为兼容旧配置的后备变量。",
-                "ANSYSLIC_DIR 仅用于补充环境信息，本身通常不是许可证服务器地址。",
-                "PyMAPDL 的运行时用户目录已重定向到工作区内的 runtime_data，避免系统目录写权限问题。",
+                "求解器发现支持 Windows / Linux 标准安装位置与全部版本（v* 目录），优先选择最新版本。",
+                "MAPDL_EXECUTABLE 优先用于显式定位；ANSYS_DIR、AWP_ROOT、AWP_ROOT{版本} 为目录级配置。",
+                "ANSYS241_DIR / AWP_ROOT241 仍作为兼容旧配置的后备变量。",
+                "PyMAPDL/PyMechanical 的运行时用户目录已重定向到项目内 runtime_data（Windows 经 LOCALAPPDATA，Linux/macOS 经 XDG 变量）。",
                 "当前接口支持 .inp、.dat、.mac 等 MAPDL 输入文件，不直接支持 .wbpj。",
                 "后处理可视化依赖（PyVista、matplotlib、numpy）状态见 post_processing 字段。",
             ],
@@ -185,11 +187,16 @@ class AnsysRunner:
                 session_holder=session_holder,
             )
         except Exception as exc:
+            detail = str(exc)
+            hint = None
+            if "Permission denied" in detail or "Errno 13" in detail:
+                hint = "工作目录可能被残留的 ANSYS 进程占用（快速连续提交任务时常见）。可结束残留的 ANSYS.exe/MAPDL.exe 进程、运行工作目录中的 cleanup-ansys-*.bat，或为本任务指定独立的 working_directory。"
             return {
                 "success": False,
                 "mode": "mapdl_launch_failed",
                 "message": "启动 MAPDL 失败，请检查 ANSYS 路径、许可证配置和相关环境变量。",
-                "detail": str(exc),
+                "detail": detail,
+                "hint": hint,
                 "working_directory": str(resolved_workdir.resolve()),
                 "detected_mapdl_exec": str(exec_file) if exec_file else None,
                 "apdl_commands": self._build_demo_commands(),
@@ -417,43 +424,19 @@ class AnsysRunner:
             return preview
 
     def _prepare_pymapdl_runtime(self) -> None:
-        self.runtime_local_appdata.mkdir(parents=True, exist_ok=True)
-        self.runtime_roaming_appdata.mkdir(parents=True, exist_ok=True)
-        (self.runtime_roaming_appdata / "Ansys").mkdir(parents=True, exist_ok=True)
         self.runtime_pymapdl_user_data.parent.mkdir(parents=True, exist_ok=True)
+        prepare_runtime_dirs(self.runtime_root)
 
-        os.environ["ANSYS_DIR"] = str(self.ansys_dir)
-        os.environ["ANSYSLIC_DIR"] = str(self.ansyslic_dir)
-        os.environ["AWP_ROOT"] = str(self.awp_root)
-        os.environ["LOCALAPPDATA"] = str(self.runtime_local_appdata.resolve())
-        os.environ["APPDATA"] = str(self.runtime_roaming_appdata.resolve())
-
-        import platformdirs
-
-        runtime_path = str(self.runtime_pymapdl_user_data.resolve())
-        platformdirs.user_data_dir = lambda *args, **kwargs: runtime_path
+        if self.ansys_dir:
+            os.environ["ANSYS_DIR"] = str(self.ansys_dir)
+        if self.ansyslic_dir:
+            os.environ["ANSYSLIC_DIR"] = str(self.ansyslic_dir)
+        if self.awp_root:
+            os.environ["AWP_ROOT"] = str(self.awp_root)
 
     def _find_mapdl_executable(self) -> Path | None:
-        if self.configured_mapdl_executable and self.configured_mapdl_executable.is_file():
-            return self.configured_mapdl_executable
-
-        ansys_directories = [self.ansys_dir, self.awp_root / "ANSYS"]
-        for install_root in (Path(r"D:\Program Files (x86)"), Path(r"C:\Program Files"), Path(r"D:\ANSYS Inc")):
-            ansys_directories.extend(install_root.glob("ANSYS Inc*/v*/ANSYS"))
-            ansys_directories.extend(install_root.glob("v*/ANSYS"))
-
-        checked_directories: set[Path] = set()
-        for ansys_directory in ansys_directories:
-            if ansys_directory in checked_directories:
-                continue
-            checked_directories.add(ansys_directory)
-            executable_directory = ansys_directory / "bin" / "winx64"
-            for pattern in ("MAPDL*.exe", "ANSYS*.exe"):
-                for candidate in sorted(executable_directory.glob(pattern)):
-                    if candidate.is_file():
-                        return candidate
-
-        return None
+        """发现 MAPDL 可执行文件（跨版本/跨平台，委托 ansys_discovery）。"""
+        return discover_mapdl()["exec_path"]
 
     def _validate_input_file(self, input_path: Path) -> dict | None:
         if not input_path.exists():
@@ -521,12 +504,15 @@ class AnsysRunner:
         temp_markers = ("__tmp__", ".tmp", "scratch")
         return file_name.startswith(".") or any(marker in file_name for marker in temp_markers)
 
-    def _build_status_message(self, pymapdl_importable: bool, exec_file: Path | None) -> str:
+    def _build_status_message(self, pymapdl_importable: bool, exec_file: Path | None, version: int | None = None) -> str:
+        suffix = f"{platform_label()}"
+        if version:
+            suffix = f"v{version} · {suffix}"
         if not pymapdl_importable:
-            return "当前无法导入 PyMAPDL，暂时不能执行真实 ANSYS 示例。"
+            return f"当前无法导入 PyMAPDL，暂时不能执行真实 ANSYS 示例（{suffix}）。"
         if exec_file is None:
-            return "PyMAPDL 已可用，但当前路径配置下未找到 MAPDL.exe。"
-        return "PyMAPDL 已可用，并已检测到 MAPDL 可执行文件。"
+            return f"PyMAPDL 已可用，但当前路径配置下未找到 MAPDL 可执行文件（{suffix}）。"
+        return f"MAPDL 已就绪（{suffix}）。"
 
     def _extract_engineering_results(self, mapdl) -> dict:
         """求解完成后提取位移、应力、频率等工程物理量。"""

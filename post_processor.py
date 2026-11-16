@@ -19,12 +19,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from paths import project_path
+
 
 class PostProcessor:
     """封装 PyMAPDL 后处理可视化与数据提取流程。"""
 
-    def __init__(self, output_dir: str | Path = "reports") -> None:
-        self.output_dir = Path(output_dir)
+    def __init__(self, output_dir: str | Path | None = None) -> None:
+        self.output_dir = Path(output_dir) if output_dir else project_path("reports")
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     # ───────────────────────────────

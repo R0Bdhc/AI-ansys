@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from log_parser import ERROR_PATTERNS, WARNING_PATTERNS, _BLOCK_HEADER
+from paths import project_path
 
 _TAIL_READ_BYTES = 64 * 1024
 _MAX_UNMATCHED_SAMPLES = 3
@@ -127,7 +128,7 @@ class SolverOutputWatcher:
         run_id: str | None = None,
         poll_interval: float = 1.0,
         stall_timeout: float | None = None,
-        journal_dir: str | Path = "runtime_data/evidence",
+        journal_dir: str | Path | None = None,
         tail_lines: int = 30,
         error_patterns: dict | None = None,
         warning_patterns: dict | None = None,
@@ -140,7 +141,7 @@ class SolverOutputWatcher:
         self.error_patterns = error_patterns or ERROR_PATTERNS
         self.warning_patterns = warning_patterns or WARNING_PATTERNS
 
-        self.journal_dir = Path(journal_dir)
+        self.journal_dir = Path(journal_dir) if journal_dir else project_path("runtime_data", "evidence")
         self.journal_path = self.journal_dir / f"{self.run_id}.jsonl"
 
         self._lock = threading.Lock()
@@ -534,8 +535,10 @@ if __name__ == "__main__":
                 "\n"
             )
             handle.flush()
-    with open(tmp / "file0.err", "w", encoding="utf-8") as handle:
-        handle.write("*** ERROR *** CP = 9.0\nA singular matrix was detected at node 55.\n\n")
+    (tmp / "file0.err").write_text(
+        "*** ERROR *** CP = 9.0\nA singular matrix was detected at node 55.\n\n",
+        encoding="utf-8",
+    )
     time.sleep(0.8)
 
     snap = watcher.snapshot()

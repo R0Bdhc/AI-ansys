@@ -3,6 +3,15 @@ import os
 import sys
 from pathlib import Path
 
+from ansys_discovery import (
+    MIN_MECHANICAL_VERSION,
+    discover_mechanical,
+    infer_version,
+    platform_label,
+    prepare_runtime_dirs,
+)
+from paths import project_path
+
 
 # ───────────────────────────────
 # stdio 流保护（MCP 模式必需）
@@ -30,15 +39,17 @@ class MechanicalRunner:
         # 中文说明：
         # 当前项目仍以 MAPDL 链路为主，这里新增的是独立的 Mechanical 能力层。
         # 为了不破坏现有 MVP，这里全部采用延迟导入和运行时检查。
-        self.runtime_local_appdata = Path("runtime_data") / "localappdata"
-        self.runtime_roaming_appdata = Path("runtime_data") / "appdata"
+        self.runtime_root = project_path("runtime_data")
+        self.runtime_local_appdata = self.runtime_root / "localappdata"
+        self.runtime_roaming_appdata = self.runtime_root / "appdata"
         self.runtime_mechanical_user_data = self.runtime_local_appdata / "Ansys" / "ansys_mechanical_core"
         self.runtime_tools_path_data = self.runtime_local_appdata / "Ansys" / "ansys_tools_path"
-        self.default_workdir = Path("mechanical_workspace")
+        self.default_workdir = project_path("mechanical_workspace")
 
         # 中文说明：
-        # 这里只保留 242+ 的能力方案，因为这是 PyMechanical 当前更稳定的范围。
-        self.supported_versions = [242, 251, 252, 261, 271, 272]
+        # Mechanical（PyMechanical 嵌入式模式）按版本下限判断而非固定白名单，
+        # 新版本（如 v281）无需改代码即可支持。
+        self.min_mechanical_version = MIN_MECHANICAL_VERSION
         self.supported_contact_types = {
             "Bonded": "Bonded",
             "Frictional": "Frictional",
@@ -47,21 +58,29 @@ class MechanicalRunner:
             "Rough": "Rough",
         }
 
+    def _is_supported_version(self, version: int | None) -> bool:
+        return version is not None and version >= self.min_mechanical_version
+
     def get_environment_status(self) -> dict:
         """返回 PyMechanical 242+ 能力的环境状态。"""
-        mechanical_exec, detected_version = self._find_mechanical_executable()
+        discovery = discover_mechanical()
+        mechanical_exec = discovery["exec_path"]
+        detected_version = discovery["version"]
         pymechanical_importable, import_error = self._check_pymechanical_importable()
 
         return {
+            "platform": platform_label(),
             "pymechanical_importable": pymechanical_importable,
             "pymechanical_import_error": import_error,
             "detected_mechanical_exec": str(mechanical_exec) if mechanical_exec else None,
             "detected_version": detected_version,
-            "version_supported": detected_version in self.supported_versions if detected_version else False,
+            "version_supported": self._is_supported_version(detected_version),
+            "min_mechanical_version": self.min_mechanical_version,
+            "detected_versions": discovery.get("all_versions") or [],
+            "discovery_source": discovery.get("source"),
             "runtime_local_appdata": str(self.runtime_local_appdata.resolve()),
             "runtime_roaming_appdata": str(self.runtime_roaming_appdata.resolve()),
             "runtime_mechanical_user_data": str(self.runtime_mechanical_user_data.resolve()),
-            "supported_versions": self.supported_versions,
             "message": self._build_status_message(
                 pymechanical_importable=pymechanical_importable,
                 mechanical_exec=mechanical_exec,
@@ -74,7 +93,7 @@ class MechanicalRunner:
         return {
             "success": True,
             "runner": "pymechanical",
-            "target_versions": self.supported_versions,
+            "target_versions": f">= {self.min_mechanical_version}",
             "recommended_strategy": "named_selection_pairing",
             "stable_capabilities": [
                 "扫描现有 Named Selections",
@@ -140,11 +159,11 @@ class MechanicalRunner:
                 "message": "未找到 242+ Mechanical 可执行文件，无法执行脚本。",
             }
 
-        if detected_version not in self.supported_versions:
+        if not self._is_supported_version(detected_version):
             return {
                 "success": False,
                 "mode": "mechanical_version_not_supported",
-                "message": f"当前检测到的 Mechanical 版本为 {detected_version}，此接口仅为 242+ 设计。",
+                "message": f"当前检测到的 Mechanical 版本为 {detected_version}，此接口仅为 {self.min_mechanical_version}+ 设计。",
                 "detected_mechanical_exec": str(mechanical_exec),
             }
 
@@ -520,11 +539,11 @@ wb_script_result = json.dumps({{
                 "message": "未找到 242+ Mechanical 可执行文件，无法执行批量接触脚本。",
             }
 
-        if detected_version not in self.supported_versions:
+        if not self._is_supported_version(detected_version):
             return {
                 "success": False,
                 "mode": "mechanical_version_not_supported",
-                "message": f"当前检测到的 Mechanical 版本为 {detected_version}，此接口仅为 242+ 设计。",
+                "message": f"当前检测到的 Mechanical 版本为 {detected_version}，此接口仅为 {self.min_mechanical_version}+ 设计。",
                 "detected_mechanical_exec": str(mechanical_exec),
             }
 
@@ -702,30 +721,10 @@ wb_script_result = json.dumps({{
         )
 
     def _prepare_pymechanical_runtime(self) -> None:
-        """准备 PyMechanical 运行环境，避免系统目录写权限问题。"""
-        self.runtime_local_appdata.mkdir(parents=True, exist_ok=True)
-        self.runtime_roaming_appdata.mkdir(parents=True, exist_ok=True)
+        """准备 PyMechanical 运行环境（跨平台目录重定向，委托 ansys_discovery）。"""
         self.runtime_mechanical_user_data.parent.mkdir(parents=True, exist_ok=True)
-        self.runtime_tools_path_data.mkdir(parents=True, exist_ok=True)
-        (self.runtime_roaming_appdata / "Ansys").mkdir(parents=True, exist_ok=True)
-
-        os.environ["LOCALAPPDATA"] = str(self.runtime_local_appdata.resolve())
-        os.environ["APPDATA"] = str(self.runtime_roaming_appdata.resolve())
-
-        import appdirs
-        import platformdirs
-
-        runtime_local = self.runtime_local_appdata.resolve()
-
-        def _patched_user_data_dir(*args, **kwargs) -> str:
-            appname = kwargs.get("appname", "app")
-            appauthor = kwargs.get("appauthor")
-            if appauthor == "Ansys":
-                return str(runtime_local / "Ansys" / appname)
-            return str(runtime_local / appname)
-
-        platformdirs.user_data_dir = _patched_user_data_dir
-        appdirs.user_data_dir = _patched_user_data_dir
+        self.runtime_tools_path_data.parent.mkdir(parents=True, exist_ok=True)
+        prepare_runtime_dirs(self.runtime_root)
 
     def _check_pymechanical_importable(self) -> tuple[bool, str | None]:
         """检查当前环境是否能导入 PyMechanical。"""
@@ -738,37 +737,13 @@ wb_script_result = json.dumps({{
             return False, str(exc)
 
     def _find_mechanical_executable(self) -> tuple[Path | None, int | None]:
-        """寻找 242+ Mechanical 可执行文件。"""
-        explicit_exec = os.getenv("MECHANICAL_EXEC")
-        if explicit_exec:
-            explicit_path = Path(explicit_exec)
-            if explicit_path.exists():
-                return explicit_path, self._infer_version_from_path(explicit_path)
-
-        candidates: list[tuple[Path, int]] = []
-
-        for version in self.supported_versions:
-            awp_root = os.getenv(f"AWP_ROOT{version}")
-            if awp_root:
-                candidate = Path(awp_root) / "aisol" / "bin" / "winx64" / "AnsysWBU.exe"
-                candidates.append((candidate, version))
-
-            default_candidate = Path(rf"D:\ANSYS Inc\v{version}") / "aisol" / "bin" / "winx64" / "AnsysWBU.exe"
-            candidates.append((default_candidate, version))
-
-        for candidate, version in candidates:
-            if candidate.exists():
-                return candidate, version
-
-        return None, None
+        """发现 242+ Mechanical 启动器（跨版本/跨平台，委托 ansys_discovery）。"""
+        discovery = discover_mechanical()
+        return discovery["exec_path"], discovery["version"]
 
     def _infer_version_from_path(self, path: Path) -> int | None:
-        """从路径字符串中推测版本号。"""
-        text = str(path).lower()
-        for version in self.supported_versions + [241]:
-            if f"v{version}" in text:
-                return version
-        return None
+        """从路径字符串中推测版本号（跨版本通用解析）。"""
+        return infer_version(path)
 
     def _parse_json_result(self, result_text: str) -> dict:
         """解析 Mechanical 脚本返回的 JSON 结果。"""
@@ -787,10 +762,11 @@ wb_script_result = json.dumps({{
         detected_version: int | None,
     ) -> str:
         """构造更易读的 Mechanical 状态信息。"""
+        suffix = platform_label()
         if not pymechanical_importable:
-            return "PyMechanical 当前不可导入，暂时无法执行 242+ Mechanical 自动化。"
+            return f"PyMechanical 当前不可导入，暂时无法执行 {self.min_mechanical_version}+ Mechanical 自动化（{suffix}）。"
         if mechanical_exec is None:
-            return "PyMechanical 已可导入，但未找到 242+ Mechanical 可执行文件。"
-        if detected_version not in self.supported_versions:
-            return f"检测到的 Mechanical 版本为 {detected_version}，此接口仅为 242+ 方案预留。"
-        return f"PyMechanical 已可用，并检测到 {detected_version} 版本的 Mechanical。"
+            return f"PyMechanical 已可导入，但未找到 {self.min_mechanical_version}+ Mechanical 启动器（{suffix}）。"
+        if not self._is_supported_version(detected_version):
+            return f"检测到的 Mechanical 版本为 {detected_version}，此接口仅为 {self.min_mechanical_version}+ 方案预留（{suffix}）。"
+        return f"Mechanical {detected_version} 已就绪（{suffix}）。"

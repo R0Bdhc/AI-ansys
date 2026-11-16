@@ -1,8 +1,15 @@
 import json
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+if sys.version_info < (3, 11):
+    raise RuntimeError(
+        f"cae-agent 需要 Python 3.11+，当前为 {sys.version.split()[0]}。"
+        "请升级 Python 后重试（见 README「环境要求」）。"
+    )
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
@@ -17,14 +24,15 @@ from log_parser import detect_errors, load_log_text
 from mechanical_post_processor import MechanicalPostProcessor
 from mechanical_runner import MechanicalRunner
 from observability import get_events
+from paths import PROJECT_ROOT, project_path
 
 
-load_dotenv()
+load_dotenv(PROJECT_ROOT / ".env")
 
 app = FastAPI(
     title="cae-agent",
     description="基于 ANSYS 与 LLM 的最小可运行 CAE 辅助系统。",
-    version="0.1.0",
+    version="0.3.0",
 )
 
 
@@ -177,7 +185,7 @@ class MonitorPauseRequest(BaseModel):
 llm_analyzer = get_llm_analyzer()
 ansys_runner = AnsysRunner()
 mechanical_runner = MechanicalRunner()
-mechanical_post_processor = MechanicalPostProcessor(output_dir="reports")
+mechanical_post_processor = MechanicalPostProcessor(output_dir=project_path("reports"))
 job_manager = RunJobManager(
     ansys_runner=ansys_runner,
     mechanical_runner=mechanical_runner,
@@ -296,7 +304,7 @@ def mechanical_extract_results(request: MechanicalExtractRequest) -> dict:
 
 @app.post("/mechanical-export-image")
 def mechanical_export_image(request: MechanicalImageRequest) -> dict:
-    image_path = str(Path("reports") / f"{request.basename}_{request.image_type}.png")
+    image_path = str(project_path("reports") / f"{request.basename}_{request.image_type}.png")
 
     if request.image_type == "stress":
         script = mechanical_post_processor.build_stress_export_script(image_path)
@@ -647,7 +655,7 @@ def fs_browse(path: Optional[str] = Query(default=None)) -> dict:
     if path:
         target = Path(path)
     else:
-        target = Path(__file__).resolve().parent
+        target = PROJECT_ROOT
 
     if not target.exists():
         raise HTTPException(status_code=400, detail=f"路径不存在：{target}")
@@ -695,7 +703,7 @@ def llm_test() -> dict:
 # 运行监控仪表盘
 # ═══════════════════════════════
 
-DASHBOARD_FILE = Path(__file__).resolve().parent / "static" / "dashboard.html"
+DASHBOARD_FILE = PROJECT_ROOT / "static" / "dashboard.html"
 
 
 @app.get("/dashboard")
@@ -741,7 +749,7 @@ def _job_summary(jobs: list[dict]) -> dict:
 
 
 def _list_reports(limit: int = 50) -> list[dict]:
-    reports_dir = Path("reports")
+    reports_dir = project_path("reports")
     if not reports_dir.exists():
         return []
     items: list[dict] = []
@@ -765,7 +773,7 @@ def get_report_file(filename: str) -> FileResponse:
     """查看/下载 reports 目录中的报告文件（仅允许纯文件名，防路径穿越）。"""
     if "/" in filename or "\\" in filename or ".." in filename:
         raise HTTPException(status_code=400, detail="非法文件名。")
-    path = Path("reports") / filename
+    path = project_path("reports") / filename
     if not path.is_file():
         raise HTTPException(status_code=404, detail=f"报告文件不存在：{filename}")
     return FileResponse(path)

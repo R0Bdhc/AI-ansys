@@ -18,6 +18,12 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+# 管道/文件重定向时的中文输出编码兜底
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches
@@ -28,9 +34,10 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(PROJECT_ROOT / ".env")
 
 from ansys.mapdl.core import launch_mapdl
+from ansys_discovery import discover_mapdl
 from post_processor import PostProcessor
 
 
@@ -264,14 +271,19 @@ def main() -> int:
     report_dir.mkdir(exist_ok=True)
 
     print("启动 MAPDL...")
-    mapdl = launch_mapdl(
-        exec_file=r"D:\Program Files (x86)\ANSYS Inc25\v252\ANSYS\bin\winx64\MAPDL.exe",
-        run_location=str(workdir),
-        jobname="cantilever",
-        override=True,
-        mode="grpc",
-        loglevel="ERROR",
-    )
+    discovery = discover_mapdl()
+    launch_kwargs = {
+        "run_location": str(workdir),
+        "jobname": "cantilever",
+        "override": True,
+        "mode": "grpc",
+        "loglevel": "ERROR",
+    }
+    if discovery["exec_path"]:
+        launch_kwargs["exec_file"] = str(discovery["exec_path"])
+    else:
+        print("警告：未自动发现 MAPDL，将依赖 PyMAPDL 自行定位（可设 MAPDL_EXECUTABLE 显式指定）。")
+    mapdl = launch_mapdl(**launch_kwargs)
 
     try:
         tip_uy = run_simulation(mapdl, PARAMETERS)

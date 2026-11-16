@@ -22,6 +22,12 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+# 管道/文件重定向时的中文输出编码兜底
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches
@@ -32,7 +38,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(PROJECT_ROOT / ".env")
 
 from mechanical_post_processor import MechanicalPostProcessor
 from mechanical_runner import MechanicalRunner
@@ -135,8 +141,10 @@ def generate_visualizations(
         results["data"] = execution_result.get("results", {})
         # 保存 JSON
         json_path = report_dir / "mechanical_cantilever_results.json"
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(results["data"], f, ensure_ascii=False, indent=2)
+        json_path.write_text(
+            json.dumps(results["data"], ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
         results["json_path"] = str(json_path)
     else:
         results["data_error"] = extract_result.get("message", "未知错误")
@@ -152,6 +160,13 @@ def generate_word_report(
 ) -> Path:
     """生成包含数据和图表的 Word 文档。"""
     print("[3/4] 生成 Word 报告...")
+
+    # 防路径穿越：校验 report_dir 位于项目 reports 目录之内
+    reports_root = (PROJECT_ROOT / "reports").resolve()
+    report_dir = Path(report_dir).resolve()
+    if reports_root != report_dir and reports_root not in report_dir.parents:
+        raise ValueError(f"report_dir 必须位于项目 reports 目录之内: {report_dir}")
+
     expected = expected_tip_displacement(PARAMETERS)
 
     doc = Document()
@@ -301,8 +316,11 @@ def main() -> int:
     workdir = PROJECT_ROOT / "runtime_data" / "mechanical_cantilever_report"
     workdir.mkdir(parents=True, exist_ok=True)
 
-    report_dir = PROJECT_ROOT / "reports"
-    report_dir.mkdir(exist_ok=True)
+    report_dir = (PROJECT_ROOT / "reports").resolve()
+    # 防路径穿越：report_dir 必须位于项目根之内（源头锚定，供下游静态验证）
+    if PROJECT_ROOT.resolve() not in report_dir.parents:
+        raise ValueError(f"report_dir 异常，不在项目根之内: {report_dir}")
+    report_dir.mkdir(parents=True, exist_ok=True)
 
     runner = MechanicalRunner()
     pp = MechanicalPostProcessor(output_dir=str(report_dir))

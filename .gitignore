@@ -25,3 +25,11 @@ knowledge-base/obsidian-note-system.md
 knowledge-base/projects/
 knowledge-base/skills-output/
 knowledge-base/templates/
+
+# 内部工具产物（个人环境生成物，不属于开源仓库）
+graphify-out/
+.mimosa/
+.zcode/
+.knowledge_vault/
+knowledge_vault/
+dist/

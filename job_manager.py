@@ -24,10 +24,11 @@ from pathlib import Path
 
 from analysis_pipeline import analyze_execution
 from observability import record_solve_run
+from paths import project_path
 from solve_watcher import SolverOutputWatcher, scan_directory_once
 from log_parser import load_log_text
 
-_JOBS_DIR = Path("runtime_data") / "jobs"
+_JOBS_DIR = project_path("runtime_data", "jobs")
 _DEFAULT_MAX_WORKERS = 2
 _KILL_GRACE_SECONDS = 15.0
 
@@ -152,7 +153,7 @@ class RunJobManager:
         kind = job["kind"]
         params = job["params"]
 
-        watch_dir = Path(params.get("working_directory") or KIND_REGISTRY.get(kind, "ansys_workspace"))
+        watch_dir = Path(params.get("working_directory") or project_path(KIND_REGISTRY.get(kind, "ansys_workspace")))
         try:
             watch_dir.mkdir(parents=True, exist_ok=True)
         except OSError:

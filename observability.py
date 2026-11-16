@@ -15,7 +15,8 @@ import json
 import threading
 from collections import deque
 from datetime import datetime
-from pathlib import Path
+
+from paths import project_path
 
 _MAX_EVENTS = 500
 _PREVIEW_CHARS = 1500
@@ -24,7 +25,7 @@ JournalHook = None  # 预留：外部可注入自定义持久化钩子
 _lock = threading.Lock()
 _events: deque[dict] = deque(maxlen=_MAX_EVENTS)
 _next_id = 1
-_journal_path = Path("runtime_data/observability/events.jsonl")
+_journal_path = project_path("runtime_data", "observability", "events.jsonl")
 
 
 def _truncate(value, limit: int = _PREVIEW_CHARS):

@@ -1,0 +1,4 @@
+# -*- coding: utf-8 -*-
+# 可选：ansys-local MCP 服务器（.claude/mcp-servers/ansys-mcp/server.py）所需
+# 仅在使用 MCP 集成时安装；REST API / 仪表盘不需要
+mcp>=1.2.0

@@ -5,13 +5,15 @@
 ## 架构概览
 
 ```
-main.py          FastAPI 入口，26 个 REST 端点，组装层
+main.py          FastAPI 入口，26+ 个 REST 端点，组装层
+├─ paths.py          项目根锚定（所有文件系统默认路径的唯一来源，禁止相对 CWD）
+├─ ansys_discovery.py  求解器发现（跨版本 v* glob + 跨平台 Windows/Linux/macOS）
 ├─ log_parser.py      日志解析 + 错误/警告正则模式库 + 诊断块解析
 ├─ analysis_pipeline.py  统一诊断链路（检测→证据合并→LLM→报告），LLM 单例
 ├─ llm_analyzer.py    多提供商 LLM 分析 + 本地规则回退 + 观测事件记录
 ├─ report_generator.py Markdown 报告生成（支持嵌入可视化图片与证据章节）
 ├─ ansys_runner.py    PyMAPDL 封装（.inp/.dat/.mac + 模板仿真 + 后处理）
-├─ mechanical_runner.py PyMechanical 242+ 批量接触
+├─ mechanical_runner.py PyMechanical（版本下限 242+，批量接触）
 ├─ simulation_templates.py  预定义仿真模板（悬臂梁 / 带孔板 / 粘弹性盘）
 ├─ post_processor.py  PyVista 离屏云图 + matplotlib 应力曲线 + stdio 保护
 ├─ solve_watcher.py   流式证据监视器（跨进程文件跟随 + 块解析 + 去重计数）
@@ -44,12 +46,13 @@ curl -X POST http://127.0.0.1:8000/analyze-log \
 
 ## 关键约定
 
+- **跨机器路径**：所有文件系统默认路径经 `paths.project_path()` 锚定项目根，禁止相对 CWD 与硬编码盘符；机器专属配置走环境变量（`.env`）
+- **跨版本探测**：求解器发现一律走 `ansys_discovery`（v* 目录 glob，版本降序取最新）；Mechanical 按 `MIN_MECHANICAL_VERSION=242` 下限判断而非白名单；新增平台支持先改 discovery
+- **平台分级**：Windows 全功能；Linux MAPDL 标准位置探测（best effort）；macOS 日志分析模式（求解需显式路径）；平台分支只允许出现在 ansys_discovery 内
 - **两阶段设计**：所有执行端点默认 preview 模式，需显式传 `launch_*=true` 才真实启动求解器
-- **运行时目录重定向**：PyMAPDL/PyMechanical 的 `LOCALAPPDATA` 被重定向到 `runtime_data/`，避免 C 盘权限问题
 - **LLM 回退**：无 API Key 时自动降级到本地规则分析（覆盖奇异矩阵、不收敛、接触穿透三类）
-- **环境变量**：统一由 `.env` 管理，通过 `python-dotenv` 加载
+- **环境变量**：统一由项目根 `.env` 管理（`load_dotenv(PROJECT_ROOT/".env")`）
 - **日志文件优先级**：`.out > .log > .err`，过滤隐藏文件和临时文件
-- **Windows 路径**：默认 ANSYS 安装路径在 `D:\ANSYS Inc\v241\`
 
 ## 证据协议（solve_watcher / job_manager）
 
@@ -77,6 +80,8 @@ curl -X POST http://127.0.0.1:8000/analyze-log \
 | 模块 | 职责 | 禁止 |
 |------|------|------|
 | `main.py` | 路由、请求校验、模块串联 | 不写业务逻辑 |
+| `paths.py` | 项目根锚定辅助 | 不含业务逻辑 |
+| `ansys_discovery.py` | 跨版本/跨平台求解器发现 + 许可证 + 运行时目录 | 不启动求解器、不做分析 |
 | `log_parser.py` | 正则匹配 + 日志截取 + 诊断块解析 | 不调用外部服务 |
 | `llm_analyzer.py` | LLM 调用 + 回退规则 + 观测记录 | 不读写文件 |
 | `analysis_pipeline.py` | 统一分析链路编排 + LLM 单例 | 不管理求解器 |

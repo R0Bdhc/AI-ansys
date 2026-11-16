@@ -4,20 +4,20 @@
       "command": "npx",
       "args": [
         "-y",
-        "@anthropic/mcp-server-filesystem",
-        "d:/Projects/AI-ansys/sample_inputs",
-        "d:/Projects/AI-ansys/sample_logs",
-        "d:/Projects/AI-ansys/ansys_workspace",
-        "d:/Projects/AI-ansys/reports",
-        "d:/Projects/AI-ansys/runtime_data"
+        "@modelcontextprotocol/server-filesystem@2026.8.31",
+        "./sample_inputs",
+        "./sample_logs",
+        "./ansys_workspace",
+        "./reports",
+        "./runtime_data"
       ],
-      "description": "安全访问 CAE Agent 工作目录：输入文件、日志、执行产物和报告。"
+      "description": "安全访问 CAE Agent 工作目录：输入文件、日志、执行产物和报告。路径相对项目根（MCP 服务器以项目根为 CWD 启动）。"
     },
     "deepseek": {
       "command": "npx",
       "args": [
         "-y",
-        "deepseek-mcp-server"
+        "deepseek-mcp-server@1.0.1"
       ],
       "env": {
         "DEEPSEEK_API_KEY": "${DEEPSEEK_API_KEY}",
@@ -28,21 +28,22 @@
     "ansys-local": {
       "command": "python",
       "args": [
-        "d:/Projects/AI-ansys/.claude/mcp-servers/ansys-mcp/server.py"
+        "./.claude/mcp-servers/ansys-mcp/server.py"
       ],
       "env": {
-        "ANSYS241_DIR": "${ANSYS241_DIR}",
+        "ANSYS_DIR": "${ANSYS_DIR}",
         "ANSYSLIC_DIR": "${ANSYSLIC_DIR}",
-        "AWP_ROOT241": "${AWP_ROOT241}",
-        "PYTHONPATH": "d:/Projects/AI-ansys"
+        "AWP_ROOT": "${AWP_ROOT}",
+        "PYTHONPATH": "."
       },
-      "description": "自定义 ANSYS MCP 服务器，封装 PyMAPDL 执行、PyMechanical 执行和状态查询。支持 MAPDL 求解、Mechanical 脚本执行与批量接触创建、日志分析与 LLM 诊断。"
+      "description": "自定义 ANSYS MCP 服务器，封装 PyMAPDL 执行、PyMechanical 执行和状态查询。支持全部 ANSYS 版本自动发现（跨平台）。server.py 自身按 __file__ 锚定项目根。"
     }
   },
   "notes": {
-    "filesystem": "提供对项目工作目录的安全文件读写，Claude 可以直接浏览 ansys_workspace 中的求解产物。",
-    "deepseek": "如果社区没有 deepseek-mcp-server，可以用 OpenAI 兼容的 MCP 替代，设置 base_url 指向 api.deepseek.com。",
-    "ansys-local": "自定义 MCP 服务器，需要先安装 ansys-mapdl-core 和 ansys-mechanical-core。如果当前环境无 ANSYS，此服务器启动会失败但不影响其他 MCP。",
+    "filesystem": "使用官方 @modelcontextprotocol/server-filesystem（版本已固定，避免供应链漂移）。Windows 下若 Node 启动器运行失败，可把 command 改为 cmd 并让 args 以 /c 开头调用同一启动器。",
+    "deepseek": "版本已固定（1.0.1）。升级时请先审计变更再更新此文件。",
+    "ansys-local": "自定义 MCP 服务器，需要先安装 ansys-mapdl-core、ansys-mechanical-core 与 requirements-mcp.txt。如果当前环境无 ANSYS，此服务器启动会失败但不影响其他 MCP。",
+    "portability": "所有路径均相对项目根（clone 后无需修改）。若你的客户端不支持相对路径解析，可改为绝对路径或 ${CAE_AGENT_ROOT} 风格的环境变量。",
     "startup": "所有 MCP 服务器在 Claude Code 启动时自动加载。ansys-local 失败不会阻塞其他服务器。"
   }
 }

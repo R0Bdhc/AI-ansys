@@ -85,10 +85,21 @@ AI-ansys/
 
 ## 环境要求
 
-- Python 3.11+
-- Windows + ANSYS 241+（PyMAPDL 真实求解需要；仅预览 / 日志分析无需 ANSYS）
-- ANSYS 242+（PyMechanical 批量接触与模板需要，可选）
-- LLM API Key（可选，无 Key 时回退本地规则分析）
+- Python 3.11+（服务启动时强制校验）
+- 任意操作系统：Windows / Linux / macOS 均可运行服务（日志诊断、仪表盘、项目监听、异步任务）
+- ANSYS 安装（可选）：求解器自动发现支持全部版本（Windows 各盘符标准位置；Linux `/usr/ansys_inc` 等标准位置）；无 ANSYS 的机器上除求解端点外全部功能可用
+
+### 平台支持矩阵
+
+| 能力 | Windows | Linux | macOS |
+|------|---------|-------|-------|
+| 日志诊断 / 仪表盘 / 项目监听 / 异步任务 | ✅ | ✅ | ✅ |
+| MAPDL 自动发现 | ✅ 全部盘符标准位置 | ✅ `/usr/ansys_inc` 等（best effort，未真机验证） | ⚠️ 需 `MAPDL_EXECUTABLE` 显式指定 |
+| Mechanical 自动发现 | ✅ | ⚠️ 建议 `MECHANICAL_EXEC` 显式指定 | ⚠️ 同左 |
+| 求解器运行时目录重定向 | `LOCALAPPDATA`/`APPDATA` → runtime_data | XDG 变量 → runtime_data | 同 Linux |
+| 许可证状态检查 | `sc query` 服务 | `ps` 检测守护进程 | 同 Linux |
+
+> 多版本共存时自动选择**最新版本**；可用 `MAPDL_EXECUTABLE` / `ANSYS_DIR` / `AWP_ROOT`（或版本化的 `AWP_ROOT252` 等）显式指定。旧版变量 `ANSYS241_DIR`/`AWP_ROOT241` 兼容保留。
 
 ## 安装
 
@@ -98,9 +109,17 @@ pip install -r requirements.txt
 
 # 可选：Mechanical 242+ 支持
 pip install -r requirements-mechanical.txt
+
+# 可选：ansys-local MCP 服务器（仅 MCP 集成需要）
+pip install -r requirements-mcp.txt
+
+# 可选：scripts/ 目录的 Word 报告脚本（仅运行 scripts 需要）
+pip install -r requirements-scripts.txt
 ```
 
-核心依赖：`fastapi`、`uvicorn`、`openai`（用于调用任意 OpenAI 兼容 LLM）、`ansys-mapdl-core`、`python-dotenv`、`pyvista`、`matplotlib`、`numpy`、`ansys-tools-visualization-interface`。
+核心依赖：`fastapi`、`uvicorn`、`openai`（用于调用任意 OpenAI 兼容 LLM）、`ansys-mapdl-core`、`python-dotenv`、`platformdirs`、`appdirs`、`pyvista`、`matplotlib`、`numpy`、`ansys-tools-visualization-interface`。
+
+> 使用 MCP 的 `filesystem`/`deepseek` 服务器需要 Node.js（npx）。
 
 ## 配置
 
@@ -129,21 +148,35 @@ LLM_MODEL=deepseek-v4-pro
 
 ### ANSYS 路径配置
 
+全部**可选**：留空时自动扫描标准安装位置并选择最新版本（跨版本，Windows/Linux）。
+
 ```env
-ANSYS241_DIR=D:\ANSYS Inc\v241\ANSYS     # 优先定位 MAPDL.exe
-AWP_ROOT241=D:\ANSYS Inc\v241            # 安装根目录备用定位
-ANSYSLIC_DIR=D:\ANSYS Inc\Shared Files\Licensing
-MECHANICAL_EXEC=                          # 242+ 自动探测失败时手动指定
-MAPDL_EXECUTABLE=                         # MAPDL 可执行文件手动指定
+# 显式指定可执行文件（最高优先级，跨平台通用）
+# MAPDL_EXECUTABLE=D:/ANSYS Inc/v252/ANSYS/bin/winx64/MAPDL.exe   # Windows 示例
+# MAPDL_EXECUTABLE=/usr/ansys_inc/v252/ansys/bin/ansys252          # Linux 示例
+
+# 目录级指定（按 discovery 链依次尝试）
+ANSYS_DIR=
+AWP_ROOT=
+ANSYSLIC_DIR=
+
+# Mechanical 启动器（242+ 自动探测失败时手动指定）
+MECHANICAL_EXEC=
 ```
 
-PyMAPDL / PyMechanical 的运行期用户目录会自动重定向到项目内 `runtime_data/`，避免 `C:\Users\...\AppData\Local` 无写权限导致导入失败。
+自动发现规则：扫描所有现存盘符的 `Program Files/ANSYS Inc*/v*`（Windows）与 `/usr/ansys_inc/v*` 等（Linux），以及全部 `AWP_ROOT*`/`ANSYS*_DIR` 环境变量，按版本号降序取最新；`/mapdl-status` 会返回 `platform`、`detected_versions`（发现的所有版本）与 `discovery_source` 供确认。
+
+求解器 Python 库的运行期用户目录自动重定向到项目内 `runtime_data/`（Windows 经 `LOCALAPPDATA`，Linux/macOS 经 XDG 变量），避免系统目录写权限问题。
 
 ## 启动服务
 
 ```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+# 一键启动（含环境自检）：Windows 用 start.bat，Linux/macOS 用 ./start.sh
+# 或手动：
+python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+部署到新机器的完整流程见 [DEPLOYMENT.md](DEPLOYMENT.md)；启动前可运行 `python scripts/check_env.py` 做环境自检。
 
 - `http://127.0.0.1:8000/docs` — Swagger 接口文档
 - `http://127.0.0.1:8000/health` — 健康检查（LLM 配置与连通性）

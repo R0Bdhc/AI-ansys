@@ -9,6 +9,12 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+# 管道/文件重定向时的中文输出编码兜底
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -47,7 +53,7 @@ def main() -> int:
     parser.add_argument(
         "--workdir",
         type=Path,
-        default=Path("runtime_data") / "cantilever_validation",
+        default=PROJECT_ROOT / "runtime_data" / "cantilever_validation",
         help="Directory for MAPDL outputs and validation.json.",
     )
     parser.add_argument(
@@ -58,7 +64,7 @@ def main() -> int:
     )
     arguments = parser.parse_args()
 
-    load_dotenv()
+    load_dotenv(PROJECT_ROOT / ".env")
     runner = AnsysRunner()
     validation = {
         "validated_at": datetime.now(timezone.utc).isoformat(),
