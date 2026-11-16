@@ -1,14 +1,14 @@
 {
   "version": 1,
   "project": "ai-ansys",
-  "generated": "2026-07-31T17:32:21+00:00",
+  "generated": "2026-11-16T18:17:26+00:00",
   "canonical_root": "D:/Projects/skills",
   "vault_path": "D:/knowledgement",
   "knowledge_folder": "Knowledge/Skills",
   "skills": {
     "knowledge-driven-skill-sync": {
       "destination": "skills/knowledge-driven-skill-sync",
-      "canonical_hash": "5b301cdea41c374297f1522bd46623e4e003d4b54875d091228bf283ae440c46"
+      "canonical_hash": "835d523113b9053d1fe1c068b10a724582706ea0d02fa3439ea1cd241aa43fb4"
     },
     "batch-contact": {
       "destination": "skills/batch-contact",
@@ -62,9 +62,9 @@
   "files": {
     ".githooks/pre-push": "e7a5a41831872c8b4b396f5834dee4e7abdde51eaa0d33bc7b53526968f08e47",
     ".skills/project.json": "8c22157913374df105327779947512ee8e97e2c110b8bd90f53fe81b3e240dfc",
-    ".skills/skill_lifecycle.py": "a83b19d856ccf76e0f0c007cf13a1ace1986c4d1437a9bb5daf9e6f317e6bc81",
+    ".skills/skill_lifecycle.py": "532c1c8f1ae2dcb222aa3656184f6f618984b0b50b995687b868051058b0c0dc",
     "AGENTS.md": "6306ea8bf8cd91aac48797dc66674ebb0adc77190afcb22d60aa4b98f61ca070",
-    "skills/INDEX.md": "19dcd07688fa53b1226d0030b041abb2ac424f8cedb8d23391aeeeebd4f33ce7",
+    "skills/INDEX.md": "771f66b4980671e8664c7f19efa4934c2bb2441378ba4669e930550c08634aa6",
     "skills/batch-contact/SKILL.md": "c88ee1c7a3108f18cffaf7d43e4630fe364302dc1026c4733eedfddf6036ed66",
     "skills/batch-contact/agents/openai.yaml": "916a6f665a3eb6afaa6554058eec1761c0605a02774e07bff94f5552afb88d7e",
     "skills/check-ansys-env/SKILL.md": "dd6a334480b97d1f73f93ec64ab5e580713d41c63991e28b70e2656cdc6b1d86",
@@ -81,7 +81,7 @@
     "skills/knowledge-driven-skill-sync/agents/openai.yaml": "66d91203434c60495b0c1dcb3e8eb1e9bf60558f29389d4b905595baaeb8b184",
     "skills/knowledge-driven-skill-sync/references/knowledge.md": "f2d260fb3f2a1904960a2528fb0410097eb7ce3c2706d0fc8e57e203152bf2d5",
     "skills/knowledge-driven-skill-sync/references/project-map.json": "3d03c40e87319da2c1757c11df803a407905c5cdfa17c430203aea4186cf47af",
-    "skills/knowledge-driven-skill-sync/scripts/skill_lifecycle.py": "a83b19d856ccf76e0f0c007cf13a1ace1986c4d1437a9bb5daf9e6f317e6bc81",
+    "skills/knowledge-driven-skill-sync/scripts/skill_lifecycle.py": "532c1c8f1ae2dcb222aa3656184f6f618984b0b50b995687b868051058b0c0dc",
     "skills/meeting-notes-organizer/SKILL.md": "628d819f52abfcc765f1b1ab92b023035b10366173761b40c8536dc19a3147bc",
     "skills/meeting-notes-organizer/agents/openai.yaml": "76b150a820e5bb66d6e54ddea3d0f2e82e1d7412d0622607fb20e3199805fd3d",
     "skills/pre-push-review/SKILL.md": "22018ed665a6d13df450407808dd7737599022f92b54c0bdeec199f60d519f4b",

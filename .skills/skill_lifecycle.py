@@ -402,7 +402,7 @@ def project_index_text(project: dict) -> str:
     )
     return f'''# Project Skills
 
-This directory is synchronized from the canonical collection at `D:/Projects/skills`.
+This directory is synchronized from the canonical skill collection.
 Read the matching `SKILL.md` before use. Do not edit generated project copies directly; update the canonical skill, synchronize Obsidian knowledge, and run `sync-all`.
 
 {entries}
